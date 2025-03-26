@@ -1,0 +1,36 @@
+package nolimitholdem
+
+import (
+	"math/rand"
+
+	"github.com/idsulik/go-collections/v3/queue"
+)
+
+type Deck struct {
+	rand *rand.Rand
+	q    *queue.Queue[Card]
+}
+
+func NewDeck(rand *rand.Rand) *Deck {
+	h := &Deck{
+		rand: rand,
+	}
+	h.Reset()
+	return h
+}
+
+func (h *Deck) Reset() {
+	h.q = queue.New[Card](4 * 13)
+	perm := h.rand.Perm(4 * 13)
+	for _, v := range perm {
+		h.q.Enqueue(Card(v))
+	}
+}
+
+func (h *Deck) Get() Card {
+	val, ex := h.q.Dequeue()
+	if !ex {
+		panic("deck is empty")
+	}
+	return val
+}
