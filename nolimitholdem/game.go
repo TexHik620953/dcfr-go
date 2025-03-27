@@ -16,6 +16,33 @@ type GameState struct {
 	PrivateCards []Card
 }
 
+func (h *GameState) Clone() *GameState {
+	cp := &GameState{
+		Stage:         h.Stage,
+		CurrentPlayer: h.CurrentPlayer,
+	}
+
+	// Копируем слайсы
+	cp.PlayersPots = make([]int, len(h.PlayersPots))
+	copy(cp.PlayersPots, h.PlayersPots)
+
+	cp.Stakes = make([]int, len(h.Stakes))
+	copy(cp.Stakes, h.Stakes)
+
+	cp.PublicCards = make([]Card, len(h.PublicCards))
+	copy(cp.PublicCards, h.PublicCards)
+
+	cp.PrivateCards = make([]Card, len(h.PrivateCards))
+	copy(cp.PrivateCards, h.PrivateCards)
+
+	// Копируем map (LegalActions)
+	cp.LegalActions = make(map[Action]struct{}, len(h.LegalActions))
+	for action := range h.LegalActions {
+		cp.LegalActions[action] = struct{}{}
+	}
+	return cp
+}
+
 type GameConfig struct {
 	RandomSeed      int64
 	ChipsForEach    int
@@ -51,15 +78,10 @@ func (g *Game) DeepCopy() *Game {
 		gamePointer:   g.gamePointer,
 		round_counter: g.round_counter,
 		game_number:   g.game_number,
+		randGen:       g.randGen,
 	}
 
-	// Глубокое копирование генератора случайных чисел
-	if g.randGen != nil {
-		src := rand.NewSource(g.randGen.Int63())
-		cp.randGen = rand.New(src)
-	}
-
-	// Глубокое копирование колоды не нужно
+	// Глубокое копирование колоды
 	cp.deck = g.deck.DeepCopy()
 
 	// Глубокое копирование игроков
@@ -97,7 +119,7 @@ func (g *Game) load(cp *Game) {
 	g.game_number = cp.game_number
 
 	// Восстанавливаем генератор случайных чисел
-	g.randGen = rand.New(rand.NewSource(cp.randGen.Int63()))
+	g.randGen = cp.randGen
 
 	// Восстанавливаем игроков
 	g.players = make([]*Player, len(cp.players))

@@ -21,6 +21,14 @@ func main() {
 		<-sigCh
 	*/
 
+	/*
+		f, err := os.Create("cpu.prof")
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	*/
 	game := nolimitholdem.NewGame(nolimitholdem.GameConfig{
 		RandomSeed:      44,
 		ChipsForEach:    250,
@@ -28,7 +36,9 @@ func main() {
 		SmallBlindChips: 5,
 	})
 
-	traverser := cfr.New(game, nolimitholdem.NewRandomActor(rand.New(rand.NewSource(77))))
-
+	traverser := cfr.New(game,
+		nolimitholdem.NewRandomActor(rand.New(rand.NewSource(77))),
+		cfr.NewMemoryBuffer(10000000, 0.05),
+	)
 	traverser.TraverseTree(0)
 }

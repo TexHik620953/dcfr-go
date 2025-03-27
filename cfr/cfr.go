@@ -1,20 +1,23 @@
 package cfr
 
 import (
-	"dcfr-go/common/linq"
 	"dcfr-go/nolimitholdem"
 	"sync/atomic"
 )
 
 type CFR struct {
-	coreGame *nolimitholdem.Game
-	actor    nolimitholdem.Actor
+	coreGame  *nolimitholdem.Game
+	actor     nolimitholdem.Actor
+	memory    *MemoryBuffer
+	iteration int
 }
 
-func New(game *nolimitholdem.Game, actor nolimitholdem.Actor) *CFR {
+func New(game *nolimitholdem.Game, actor nolimitholdem.Actor, memory *MemoryBuffer) *CFR {
 	h := &CFR{
-		coreGame: game,
-		actor:    actor,
+		coreGame:  game,
+		actor:     actor,
+		memory:    memory,
+		iteration: 0,
 	}
 
 	h.coreGame.Reset()
@@ -23,52 +26,73 @@ func New(game *nolimitholdem.Game, actor nolimitholdem.Actor) *CFR {
 }
 
 func (h *CFR) TraverseTree(playerId int) []float32 {
-	players_probs := map[int]float32{}
-	for i := range h.coreGame.PlayersCount() {
-		players_probs[i] = 1
+	// Инициализация вероятностей достижения состояния
+	reachProbs := make([]float32, h.coreGame.PlayersCount())
+	for i := range reachProbs {
+		reachProbs[i] = 1.0
 	}
 
-	var a atomic.Int32
+	var nodesVisited atomic.Int32
 
-	payoffs := h.traverser(players_probs, playerId, &a)
+	payoffs := h.traverser(reachProbs, playerId, &nodesVisited)
+
+	h.iteration++
+
 	return payoffs
 }
 
-func (h *CFR) traverser(players_probs map[int]float32, playerId int, nodes_visited *atomic.Int32) []float32 {
-	nodes_visited.Add(1)
+func (h *CFR) traverser(reachProbs []float32, playerId int, nodesVisited *atomic.Int32) []float32 {
+	nodesVisited.Add(1)
 	if h.coreGame.IsOver() {
 		return h.coreGame.GetPayoffs()
 	}
 
-	current_player := h.coreGame.CurrentPlayer()
-	state := h.coreGame.GetState(current_player)
-	action_probs := h.actor.GetProbs(state)
+	currentPlayer := h.coreGame.CurrentPlayer()
+	state := h.coreGame.GetState(currentPlayer)
+	actionProbs := h.actor.GetProbs(state)
 
-	total_payoffs := make([]float32, h.coreGame.PlayersCount())
-	action_payoffs := make(map[nolimitholdem.Action][]float32)
+	totalPayoffs := make([]float32, h.coreGame.PlayersCount())
+	actionPayoffs := make(map[nolimitholdem.Action][]float32)
 
 	// Iterate over all possible actions
-	for action, action_probability := range action_probs {
+	for action, action_probability := range actionProbs {
 		//Make a copy of original probabilities
-		players_probs_copy := linq.CopyMap(players_probs)
-		players_probs_copy[current_player] *= action_probability
+		newReachProbs := make([]float32, len(reachProbs))
+		copy(newReachProbs, reachProbs)
+		newReachProbs[currentPlayer] *= action_probability
 
 		h.coreGame.Step(action)
-		// Get result and apply it to cumulative payoffs
-		internal_payoffs := h.traverser(players_probs_copy, playerId, nodes_visited)
-		for i, payoff := range internal_payoffs {
-			total_payoffs[i] = float32(payoff) * action_probability
-		}
-		action_payoffs[action] = make([]float32, len(internal_payoffs))
-		copy(action_payoffs[action], internal_payoffs)
-
+		childPayoffs := h.traverser(newReachProbs, playerId, nodesVisited)
 		h.coreGame.StepBack()
+
+		// Сохраняем результаты
+		actionPayoffs[action] = childPayoffs
+		for i, payoff := range childPayoffs {
+			totalPayoffs[i] = float32(payoff) * action_probability
+		}
 	}
-	if current_player != playerId {
-		return total_payoffs
+
+	if currentPlayer != playerId {
+		return totalPayoffs
 	}
 
 	// CFR HERE
+	regrets := make(map[nolimitholdem.Action]float32)
+	for action, payoffs := range actionPayoffs {
+		regret := payoffs[playerId] - totalPayoffs[playerId]
+		// CFR+: только положительные сожаления
+		if regret > 0 {
+			// Учитываем вероятность достижения оппонентами (product всех reachProbs кроме текущего игрока)
+			oppReach := float32(1.0)
+			for i, prob := range reachProbs {
+				if i != playerId {
+					oppReach *= prob
+				}
+			}
+			regrets[action] = regret * oppReach
+		}
+	}
+	h.memory.AddSample(playerId, state, regrets, reachProbs[playerId], h.iteration)
 
-	return total_payoffs
+	return totalPayoffs
 }
