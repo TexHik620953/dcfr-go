@@ -1,6 +1,7 @@
 package nolimitholdem
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -22,25 +23,22 @@ func BenchmarkPokerGameDetailed(b *testing.B) {
 	var totalSteps int
 
 	game := NewGame(config)
+	actor := NewRandomActor(rand.New(rand.NewSource(config.RandomSeed)))
 
 	b.ResetTimer()
 	startTime := time.Now()
 	for i := 0; i < b.N; i++ {
+		game.Reset()
 		stepsInHand := 0
-
 		for !game.IsOver() {
-			legalActions := game.LegalActions()
-			if _, ok := legalActions[ACTION_CHECK_CALL]; ok {
-				game.Step(ACTION_CHECK_CALL)
-			} else {
-				game.Step(ACTION_FOLD)
-			}
+			state := game.GetState(game.CurrentPlayer())
+			action := actor.GetAction(state)
+			game.Step(action)
 			stepsInHand++
 		}
 
 		gamesCompleted++
 		totalSteps += stepsInHand
-		game.Reset()
 	}
 
 	duration := time.Since(startTime)
@@ -50,4 +48,24 @@ func BenchmarkPokerGameDetailed(b *testing.B) {
 
 	b.ReportMetric(gamesPerSecond, "games/sec")
 	b.ReportMetric(duration.Seconds()/float64(gamesCompleted), "sec/game")
+}
+
+func TestPokerGameRollback(t *testing.T) {
+	config := GameConfig{
+		RandomSeed:      42,
+		ChipsForEach:    500,
+		NumPlayers:      3,
+		SmallBlindChips: 20,
+	}
+
+	actor := NewRandomActor(rand.New(rand.NewSource(config.RandomSeed)))
+	game := NewGame(config)
+	game.Reset()
+
+	for !game.IsOver() {
+		state := game.GetState(game.CurrentPlayer())
+		action := actor.GetAction(state)
+		game.Step(action)
+	}
+
 }

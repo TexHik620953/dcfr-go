@@ -1,8 +1,9 @@
 package main
 
 import (
+	"dcfr-go/cfr"
 	"dcfr-go/nolimitholdem"
-	"fmt"
+	"math/rand"
 )
 
 func main() {
@@ -19,23 +20,15 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 	*/
+
 	game := nolimitholdem.NewGame(nolimitholdem.GameConfig{
-		RandomSeed:      42,
-		ChipsForEach:    500,
+		RandomSeed:      44,
+		ChipsForEach:    250,
 		NumPlayers:      3,
-		SmallBlindChips: 20,
+		SmallBlindChips: 5,
 	})
-	for {
-		for !game.IsOver() {
-			legalActions := game.LegalActions()
-			if _, ok := legalActions[nolimitholdem.ACTION_CHECK_CALL]; ok {
-				game.Step(nolimitholdem.ACTION_CHECK_CALL)
-			} else {
-				game.Step(nolimitholdem.ACTION_FOLD)
-			}
-		}
-		payoff := game.GetPayoffs()
-		fmt.Println(payoff)
-		game.Reset()
-	}
+
+	traverser := cfr.New(game, nolimitholdem.NewRandomActor(rand.New(rand.NewSource(77))))
+
+	traverser.TraverseTree(0)
 }

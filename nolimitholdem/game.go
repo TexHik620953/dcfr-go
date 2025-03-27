@@ -6,6 +6,14 @@ import (
 )
 
 type GameState struct {
+	PlayersPots   []int
+	Stakes        []int
+	LegalActions  map[Action]struct{}
+	Stage         GameStage
+	CurrentPlayer int
+
+	PublicCards  []Card
+	PrivateCards []Card
 }
 
 type GameConfig struct {
@@ -31,6 +39,78 @@ type Game struct {
 	round         *Round
 	round_counter int
 	game_number   int
+
+	history []*Game
+}
+
+func (g *Game) DeepCopy() *Game {
+	cp := &Game{
+		config:        g.config,
+		stage:         g.stage,
+		deallerId:     g.deallerId,
+		gamePointer:   g.gamePointer,
+		round_counter: g.round_counter,
+		game_number:   g.game_number,
+	}
+
+	// Глубокое копирование генератора случайных чисел
+	if g.randGen != nil {
+		src := rand.NewSource(g.randGen.Int63())
+		cp.randGen = rand.New(src)
+	}
+
+	// Глубокое копирование колоды не нужно
+	cp.deck = g.deck.DeepCopy()
+
+	// Глубокое копирование игроков
+	if g.players != nil {
+		cp.players = make([]*Player, len(g.players))
+		for i, player := range g.players {
+			if player != nil {
+				cp.players[i] = player.DeepCopy()
+			}
+		}
+	}
+
+	// Глубокое копирование общественных карт
+	if g.publicCards != nil {
+		cp.publicCards = make([]Card, len(g.publicCards))
+		copy(cp.publicCards, g.publicCards)
+	}
+
+	// Глубокое копирование раунда
+	if g.round != nil {
+		cp.round = g.round.DeepCopy()
+	}
+	return cp
+}
+func (g *Game) load(cp *Game) {
+	if cp == nil {
+		return
+	}
+	// Восстанавливаем простые поля
+	g.config = cp.config
+	g.stage = cp.stage
+	g.deallerId = cp.deallerId
+	g.gamePointer = cp.gamePointer
+	g.round_counter = cp.round_counter
+	g.game_number = cp.game_number
+
+	// Восстанавливаем генератор случайных чисел
+	g.randGen = rand.New(rand.NewSource(cp.randGen.Int63()))
+
+	// Восстанавливаем игроков
+	g.players = make([]*Player, len(cp.players))
+	copy(g.players, cp.players)
+
+	// Восстанавливаем общественные карты
+	g.publicCards = make([]Card, len(cp.publicCards))
+	copy(g.publicCards, cp.publicCards)
+
+	// Восстанавливаем раунд
+	g.round = cp.round
+
+	g.deck = cp.deck
 }
 
 func NewGame(config GameConfig) *Game {
@@ -41,9 +121,9 @@ func NewGame(config GameConfig) *Game {
 		players:     make([]*Player, config.NumPlayers),
 		publicCards: make([]Card, 0),
 		game_number: 0,
+		history:     make([]*Game, 0),
 	}
 	h.deck = NewDeck(h.randGen)
-	h.Reset()
 	return h
 }
 
@@ -60,7 +140,7 @@ func (h *Game) Reset() *GameState {
 			Status:        PLAYERSTATUS_ACTIVE,
 		}
 	}
-
+	h.history = make([]*Game, 0)
 	h.stage = STAGE_PREFLOP
 	h.round_counter = 0
 	h.publicCards = h.publicCards[:0]
@@ -88,19 +168,22 @@ func (h *Game) Reset() *GameState {
 
 	h.round.StartNewRound(h.gamePointer, h.players)
 
-	return &GameState{}
+	return h.GetState(h.gamePointer)
 }
 
 func (h *Game) LegalActions() map[Action]struct{} {
 	return h.round.LegalActions(h.players)
 }
 
-func (h *Game) Step(action Action) int {
+func (h *Game) Step(action Action) {
 	if _, ex := h.LegalActions()[action]; !ex {
 		panic("action not allowed")
 	}
 
 	// Take snapshot here, before any action
+	snapshot := h.DeepCopy()
+	h.history = append(h.history, snapshot)
+
 	//log.Printf("Player %d makes %s\n", h.gamePointer, action2string[action])
 
 	h.gamePointer = h.round.ProceedRound(h.players, action)
@@ -143,7 +226,7 @@ func (h *Game) Step(action Action) int {
 			if h.config.NumPlayers == bypassed_players_count {
 				h.round_counter++
 			}
-			//log.Printf("Stage is now FLOP")
+			//log.Printf("Stage is now FLOP: %d", len(h.publicCards))
 		}
 		if h.round_counter == 1 {
 			h.stage = STAGE_TURN
@@ -151,7 +234,7 @@ func (h *Game) Step(action Action) int {
 			if h.config.NumPlayers == bypassed_players_count {
 				h.round_counter++
 			}
-			//log.Printf("Stage is now TURN")
+			//log.Printf("Stage is now TURN: %d", len(h.publicCards))
 		}
 		if h.round_counter == 2 {
 			h.stage = STAGE_RIVER
@@ -159,12 +242,20 @@ func (h *Game) Step(action Action) int {
 			if h.config.NumPlayers == bypassed_players_count {
 				h.round_counter++
 			}
-			//log.Printf("Stage is now RIVER")
+			//log.Printf("Stage is now RIVER: %d", len(h.publicCards))
 		}
 		h.round_counter++
 		h.round.StartNewRound(h.gamePointer, h.players)
 	}
-	return h.gamePointer
+}
+
+func (h *Game) StepBack() {
+	if len(h.history) == 0 {
+		panic("no checkpoint to step back")
+	}
+	popped := h.history[len(h.history)-1]
+	h.history = h.history[:len(h.history)-1]
+	h.load(popped)
 }
 
 func (h *Game) IsOver() bool {
@@ -187,21 +278,36 @@ func (h *Game) IsOver() bool {
 	return false
 }
 
-func (h *Game) GetPayoffs() []int {
+func (h *Game) GetPayoffs() []float32 {
 	// Collect cards for all players and total chips
 	players_cards := make([][]Card, h.config.NumPlayers)
 	public_cards := make([]Card, len(h.publicCards))
 	copy(public_cards, h.publicCards)
 
-	remainingChips := 0
+	active_players := 0
+	remainingChips := float32(0)
 	for i, p := range h.players {
-		remainingChips += p.InChips
+		remainingChips += float32(p.InChips)
 		if p.Status == PLAYERSTATUS_ACTIVE || p.Status == PLAYERSTATUS_ALLIN {
 			players_cards[i] = make([]Card, 2)
 			copy(players_cards[i], p.HoleCards[:])
+			active_players++
 		} else {
 			players_cards[i] = nil
 		}
+	}
+
+	// All other folded, we have winner
+	payouts := make([]float32, len(h.players))
+	if active_players == 1 {
+		for i, p := range h.players {
+			if p.Status != PLAYERSTATUS_FOLDED {
+				payouts[i] = remainingChips
+			} else {
+				payouts[i] = -remainingChips / float32(len(h.players)-1)
+			}
+		}
+		return payouts
 	}
 
 	winners := ComputeWinners(players_cards, public_cards)
@@ -211,17 +317,43 @@ func (h *Game) GetPayoffs() []int {
 			winnersCount++
 		}
 	}
-
-	payouts := make([]int, h.config.NumPlayers)
 	for i, v := range winners {
 		if v == 1 {
-			payouts[i] = remainingChips / winnersCount
+			payouts[i] = remainingChips / float32(winnersCount)
+		} else {
+			payouts[i] = -remainingChips / float32(h.round.numPlayers-winnersCount)
 		}
 	}
 
 	return payouts
 }
 
+func (h *Game) CurrentPlayer() int {
+	return h.gamePointer
+}
+func (h *Game) PlayersCount() int {
+	return h.config.NumPlayers
+}
+
 func (h *Game) GetState(playerId int) *GameState {
-	return &GameState{}
+	// Public info
+	state := &GameState{
+		PlayersPots:   make([]int, len(h.players)),
+		Stakes:        make([]int, len(h.players)),
+		Stage:         h.stage,
+		CurrentPlayer: h.gamePointer,
+		PublicCards:   make([]Card, len(h.publicCards)),
+		PrivateCards:  make([]Card, 2),
+		LegalActions:  h.LegalActions(),
+	}
+	copy(state.PublicCards, h.publicCards)
+	copy(state.PrivateCards, h.players[playerId].HoleCards[:])
+
+	for i, ply := range h.players {
+		state.PlayersPots[i] = ply.InChips
+		state.Stakes[i] = ply.RemainedChips
+	}
+
+	// Private info
+	return state
 }

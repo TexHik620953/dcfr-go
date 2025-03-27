@@ -13,6 +13,24 @@ type Round struct {
 	round_raised    []int
 }
 
+func (r *Round) DeepCopy() *Round {
+	cp := &Round{
+		numPlayers:      r.numPlayers,
+		bigBlind:        r.bigBlind,
+		deallerId:       r.deallerId,
+		gamePointer:     r.gamePointer,
+		notPlayingCount: r.notPlayingCount,
+		notRaiseCount:   r.notRaiseCount,
+	}
+
+	if r.round_raised != nil {
+		cp.round_raised = make([]int, len(r.round_raised))
+		copy(cp.round_raised, r.round_raised)
+	}
+
+	return cp
+}
+
 type roundConfig struct {
 	numPlayers int
 	bigBlind   int
@@ -34,7 +52,6 @@ func newRound(cfg roundConfig) *Round {
 }
 
 func (h *Round) StartNewRound(gamePointer int, players []*Player) {
-	h.notPlayingCount = 0
 	h.notRaiseCount = 0
 	h.gamePointer = gamePointer
 

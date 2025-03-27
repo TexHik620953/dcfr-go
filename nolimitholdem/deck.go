@@ -11,6 +11,32 @@ type Deck struct {
 	q    *queue.Queue[Card]
 }
 
+func (d *Deck) DeepCopy() *Deck {
+	if d == nil {
+		return nil
+	}
+
+	// Создаем новый генератор случайных чисел с тем же seed
+	var newRand *rand.Rand
+	if d.rand != nil {
+		newRand = rand.New(rand.NewSource(d.rand.Int63()))
+	}
+
+	// Создаем новую очередь и копируем в нее все карты
+	newQueue := queue.New[Card](4 * 13)
+	if d.q != nil {
+		d.q.ForEach(func(c Card) {
+			newQueue.Enqueue(c)
+
+		})
+	}
+
+	return &Deck{
+		rand: newRand,
+		q:    newQueue,
+	}
+}
+
 func NewDeck(rand *rand.Rand) *Deck {
 	h := &Deck{
 		rand: rand,
