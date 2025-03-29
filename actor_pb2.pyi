@@ -81,10 +81,16 @@ class Sample(_message.Message):
 class GameStateRequest(_message.Message):
     __slots__ = ("state",)
     STATE_FIELD_NUMBER: _ClassVar[int]
-    state: GameState
-    def __init__(self, state: _Optional[_Union[GameState, _Mapping]] = ...) -> None: ...
+    state: _containers.RepeatedCompositeFieldContainer[GameState]
+    def __init__(self, state: _Optional[_Iterable[_Union[GameState, _Mapping]]] = ...) -> None: ...
 
 class ActionProbsResponse(_message.Message):
+    __slots__ = ("responses",)
+    RESPONSES_FIELD_NUMBER: _ClassVar[int]
+    responses: _containers.RepeatedCompositeFieldContainer[ProbsResponse]
+    def __init__(self, responses: _Optional[_Iterable[_Union[ProbsResponse, _Mapping]]] = ...) -> None: ...
+
+class ProbsResponse(_message.Message):
     __slots__ = ("action_probs",)
     class ActionProbsEntry(_message.Message):
         __slots__ = ("key", "value")

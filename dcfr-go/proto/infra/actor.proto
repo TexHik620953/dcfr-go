@@ -54,11 +54,14 @@ service Actor {
 
 // Запрос состояния игры
 message GameStateRequest {
-  GameState state = 1;
+  repeated GameState state = 1;
 }
 
 // Ответ с вероятностями действий
 message ActionProbsResponse {
+  repeated ProbsResponse responses = 1;
+}
+message ProbsResponse {
   map<int32, float> action_probs = 1;  // Карта вероятностей действий
 }
 

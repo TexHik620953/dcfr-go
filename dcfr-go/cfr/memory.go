@@ -36,6 +36,12 @@ func NewMemoryBuffer(maxSamples int, pruneRatio float32) *MemoryBuffer {
 	}
 }
 
+func (m *MemoryBuffer) Count(playerID int) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.samples[playerID])
+}
+
 // AddSample добавляет новый пример для игрока
 func (m *MemoryBuffer) AddSample(
 	playerID int,

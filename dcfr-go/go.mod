@@ -9,6 +9,7 @@ require (
 	github.com/fogleman/gg v1.3.0 // indirect
 	github.com/goccy/go-graphviz v0.2.9 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/idsulik/go-collections/v3 v3.1.0 // indirect
 	github.com/ilyakaznacheev/cleanenv v1.5.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect

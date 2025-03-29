@@ -3,38 +3,41 @@ import torch
 import numpy as np
 
 
-def convert_pbstate_to_tensor(state, device):
-    active_players_mask = list(state.active_players_mask)
-    player_pots = list(state.players_pots)
-    stakes = list(state.stakes)
-    legal_actions = list(state.legal_actions)
-    stage = state.stage
-    current_player = state.current_player
+def convert_pbstate_to_tensor(states, device):
+    active_players_mask = np.array([s.active_players_mask for s in states])
+    player_pots = np.array([s.players_pots for s in states])
+    stakes = np.array([s.stakes for s in states])
+    actions_mask = [list(s.legal_actions) for s in states]
+    stage = np.array([s.stage for s in states])
+    current_player = np.array([s.current_player for s in states])
 
-    public_cards = list(state.public_cards)
-    private_cards = list(state.private_cards)
+    public_cards = [list(s.public_cards) for s in states]
+    private_cards = np.array([s.private_cards for s in states])
 
-    # Создаем маску для действий
-    actions_mask = np.zeros(5)
-    actions_mask[legal_actions] = 1.0
+    for i, act in enumerate(actions_mask):
+        r = np.zeros(5)
+        r[act] = 1.0
+        actions_mask[i] = r
+    actions_mask = np.array(actions_mask)
 
-    # Нормализуем стеки и ставки
-    total_bank = np.sum(stakes) + np.sum(player_pots)
-    stakes = np.array(stakes) / total_bank
-    player_pots = np.array(player_pots) / total_bank
+    for i, pc in enumerate(public_cards):
+        public_cards[i] = pc + [52 for i in range(5 - len(pc))]
+    public_cards = np.array(public_cards)
 
-    # Добавляем признак пустоты в общие карты
-    public_cards = public_cards + [52 for i in range(5 - len(public_cards))]
+    bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
+    stakes = stakes/bank
+    player_pots = player_pots/bank
+
 
     # Формируем тензоры
-    public_cards = torch.tensor(public_cards, device=device, dtype=torch.int).unsqueeze(0)
-    private_cards = torch.tensor(private_cards, device=device, dtype=torch.int).unsqueeze(0)
-    stakes = torch.tensor(stakes, device=device, dtype=torch.float32).unsqueeze(0)
-    actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32).unsqueeze(0)
-    player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32).unsqueeze(0)
-    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.int).unsqueeze(0)
-    stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(0).unsqueeze(1)
-    current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(0).unsqueeze(1)
+    public_cards = torch.tensor(public_cards, device=device, dtype=torch.int)
+    private_cards = torch.tensor(private_cards, device=device, dtype=torch.int)
+    stakes = torch.tensor(stakes, device=device, dtype=torch.float32)
+    actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32)
+    player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32)
+    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.int)
+    stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
+    current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
 
     '''
             public_cards: (batch_size, 5) - индексы карт (padding = num_cards)

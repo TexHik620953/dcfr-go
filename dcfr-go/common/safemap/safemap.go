@@ -8,7 +8,7 @@ type Safemap[K comparable, V any] interface {
 	Set(key K, val V)
 	Delete(key K)
 	Exists(key K) bool
-	Foreach(it func(K, V))
+	Foreach(it func(K, V) bool)
 	Count() int
 }
 
@@ -50,11 +50,13 @@ func (h *safemapImpl[K, V]) Exists(key K) bool {
 	return ex
 }
 
-func (h *safemapImpl[K, V]) Foreach(it func(K, V)) {
+func (h *safemapImpl[K, V]) Foreach(it func(K, V) bool) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 	for k, v := range h.data {
-		it(k, v)
+		if !it(k, v) {
+			break
+		}
 	}
 }
 

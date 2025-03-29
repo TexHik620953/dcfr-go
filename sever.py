@@ -48,31 +48,36 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
         self.handled = 0
         self.avg_handled = 0
     def GetProbs(self, request, context):
-        self.handled+=1
-        if self.handled % 100 == 0:
-            print(f"Handled: {self.handled} requests")
-        curr_player = request.state.current_player
+        self.handled+=len(request.state)
+        print(f"Handled: {self.handled} requests")
+        curr_player = request.state[0].current_player
 
         state, actions_mask = convert_pbstate_to_tensor(request.state, device)
-        probs = ply_networks[curr_player].get_probs(state, actions_mask)
+        probs = ply_networks[curr_player].get_probs(state, actions_mask).cpu().numpy()
 
         resp = actor_pb2.ActionProbsResponse()
-        for i, prob in enumerate(probs.cpu().numpy()[0].tolist()):
-            if prob > 1e-6:
-                resp.action_probs[i] = prob
+        for unit_id in range(probs.shape[0]):
+            r = actor_pb2.ProbsResponse()
+            for i, prob in enumerate(probs[unit_id].tolist()):
+                if prob > 1e-6:
+                    r.action_probs[i] = prob
+            resp.responses.append(r)
         return resp
 
     def GetAvgProbs(self, request, context):
-        self.avg_handled+=1
-        if self.avg_handled % 100 == 0:
-            print(f"Handled: {self.avg_handled} avg requests")
+        self.avg_handled+=len(request.state)
+        print(f"Handled: {self.avg_handled} avg requests")
 
         state, actions_mask = convert_pbstate_to_tensor(request.state, device)
-        probs = avg_network.get_probs(state, actions_mask)
+        probs = avg_network.get_probs(state, actions_mask).cpu().numpy()
+
         resp = actor_pb2.ActionProbsResponse()
-        for i, prob in enumerate(probs.cpu().numpy()[0].tolist()):
-            if prob > 1e-6:
-                resp.action_probs[i] = prob
+        for unit_id in range(probs.shape[0]):
+            r = actor_pb2.ProbsResponse()
+            for i, prob in enumerate(probs[unit_id].tolist()):
+                if prob > 1e-6:
+                    r.action_probs[i] = prob
+            resp.responses.append(r)
         return resp
 
     def __train(self, network, optimizer, samples, name):
@@ -110,7 +115,8 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
 
             probs = F.softmax(logits, dim=1)
             entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
-            loss = loss - 0.1 * entropy.mean()  # Коэффициент 0.1 можно настраивать
+            entropy = entropy.mean()
+            loss = loss - 0.1 * entropy  # Коэффициент 0.1 можно настраивать
 
 
             loss.backward()

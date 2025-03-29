@@ -116,7 +116,7 @@ class PokerStrategyNet(nn.Module):
         if probs.sum() == 0:
             probs = actions_mask / actions_mask.sum(dim=1, keepdim=True)
         # Нормализуем
-        probs = probs / probs.sum()
+        probs = probs / probs.sum(dim=1, keepdim=True)
         return probs
 
     def save(self):
