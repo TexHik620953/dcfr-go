@@ -5,44 +5,6 @@ import (
 	"slices"
 )
 
-type GameState struct {
-	PlayersPots   []int
-	Stakes        []int
-	LegalActions  map[Action]struct{}
-	Stage         GameStage
-	CurrentPlayer int
-
-	PublicCards  []Card
-	PrivateCards []Card
-}
-
-func (h *GameState) Clone() *GameState {
-	cp := &GameState{
-		Stage:         h.Stage,
-		CurrentPlayer: h.CurrentPlayer,
-	}
-
-	// Копируем слайсы
-	cp.PlayersPots = make([]int, len(h.PlayersPots))
-	copy(cp.PlayersPots, h.PlayersPots)
-
-	cp.Stakes = make([]int, len(h.Stakes))
-	copy(cp.Stakes, h.Stakes)
-
-	cp.PublicCards = make([]Card, len(h.PublicCards))
-	copy(cp.PublicCards, h.PublicCards)
-
-	cp.PrivateCards = make([]Card, len(h.PrivateCards))
-	copy(cp.PrivateCards, h.PrivateCards)
-
-	// Копируем map (LegalActions)
-	cp.LegalActions = make(map[Action]struct{}, len(h.LegalActions))
-	for action := range h.LegalActions {
-		cp.LegalActions[action] = struct{}{}
-	}
-	return cp
-}
-
 type GameConfig struct {
 	RandomSeed      int64
 	ChipsForEach    int
@@ -302,14 +264,11 @@ func (h *Game) IsOver() bool {
 
 func (h *Game) GetPayoffs() []float32 {
 	// Collect cards for all players and total chips
+	active_players := 0
 	players_cards := make([][]Card, h.config.NumPlayers)
 	public_cards := make([]Card, len(h.publicCards))
 	copy(public_cards, h.publicCards)
-
-	active_players := 0
-	remainingChips := float32(0)
 	for i, p := range h.players {
-		remainingChips += float32(p.InChips)
 		if p.Status == PLAYERSTATUS_ACTIVE || p.Status == PLAYERSTATUS_ALLIN {
 			players_cards[i] = make([]Card, 2)
 			copy(players_cards[i], p.HoleCards[:])
@@ -318,32 +277,42 @@ func (h *Game) GetPayoffs() []float32 {
 			players_cards[i] = nil
 		}
 	}
-
-	// All other folded, we have winner
 	payouts := make([]float32, len(h.players))
-	if active_players == 1 {
+	totalPot := float32(0)
+	playerBets := make([]float32, len(h.players))
+
+	// 1. Собираем общий банк и ставки игроков
+	for i, p := range h.players {
+		playerBets[i] = float32(p.InChips)
+		totalPot += playerBets[i]
+	}
+	var winners []int
+
+	// 2. Определяем победителей
+	if active_players > 1 {
+		winners = ComputeWinners(players_cards, public_cards)
+	} else {
+		winners = make([]int, h.PlayersCount())
 		for i, p := range h.players {
-			if p.Status != PLAYERSTATUS_FOLDED {
-				payouts[i] = remainingChips
+			if p.Status == PLAYERSTATUS_FOLDED {
+				winners[i] = 0
 			} else {
-				payouts[i] = -remainingChips / float32(len(h.players)-1)
+				winners[i] = 1
 			}
 		}
-		return payouts
 	}
 
-	winners := ComputeWinners(players_cards, public_cards)
-	winnersCount := 0
-	for _, v := range winners {
-		if v == 1 {
-			winnersCount++
-		}
+	// 3. Делим банк между победителями
+	if len(winners) == 0 {
+		return payouts // Ничья (все получают 0)
 	}
-	for i, v := range winners {
-		if v == 1 {
-			payouts[i] = remainingChips / float32(winnersCount)
+
+	winShare := totalPot
+	for i := range payouts {
+		if winners[i] == 1 {
+			payouts[i] = winShare - playerBets[i] // Чистый выигрыш
 		} else {
-			payouts[i] = -remainingChips / float32(h.round.numPlayers-winnersCount)
+			payouts[i] = -playerBets[i] // Чистый проигрыш (только свои ставки)
 		}
 	}
 
@@ -360,20 +329,26 @@ func (h *Game) PlayersCount() int {
 func (h *Game) GetState(playerId int) *GameState {
 	// Public info
 	state := &GameState{
-		PlayersPots:   make([]int, len(h.players)),
-		Stakes:        make([]int, len(h.players)),
-		Stage:         h.stage,
-		CurrentPlayer: h.gamePointer,
-		PublicCards:   make([]Card, len(h.publicCards)),
-		PrivateCards:  make([]Card, 2),
-		LegalActions:  h.LegalActions(),
+		ActivePlayersMask: make([]int32, len(h.players)),
+		PlayersPots:       make([]int32, len(h.players)),
+		Stakes:            make([]int32, len(h.players)),
+		Stage:             h.stage,
+		CurrentPlayer:     int32(h.gamePointer),
+		PublicCards:       make([]Card, len(h.publicCards)),
+		PrivateCards:      make([]Card, 2),
+		LegalActions:      h.LegalActions(),
 	}
 	copy(state.PublicCards, h.publicCards)
 	copy(state.PrivateCards, h.players[playerId].HoleCards[:])
 
 	for i, ply := range h.players {
-		state.PlayersPots[i] = ply.InChips
-		state.Stakes[i] = ply.RemainedChips
+		if ply.Status == PLAYERSTATUS_FOLDED {
+			state.ActivePlayersMask[i] = 0
+		} else {
+			state.ActivePlayersMask[i] = 1
+		}
+		state.PlayersPots[i] = int32(ply.InChips)
+		state.Stakes[i] = int32(ply.RemainedChips)
 	}
 
 	// Private info

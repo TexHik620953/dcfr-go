@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package infra;
+
+option go_package = ".;infra";
+
+//protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/infra/actor.proto
+// Определение карты
+// Состояние игры
+message GameState {
+  repeated int32 active_players_mask = 1;   // Маска активных игроков
+  repeated int32 players_pots = 2;   // Банки игроков
+  repeated int32 stakes = 3;         // Текущие ставки игроков
+  map<int32, bool> legal_actions = 4; // Доступные действия (ключ - действие, значение - всегда true)
+  GameStage stage = 5;               // Текущая стадия игры
+  int32 current_player = 6;          // ID текущего игрока
+
+  repeated int32 public_cards = 7;    // Общие карты на столе
+  repeated int32 private_cards = 8;   // Карты текущего игрока
+}
+// Тренировочный сэмпл
+message Sample {
+  GameState state = 1;                   // Состояние игры
+  map<int32, float> regrets = 2;         // Сожаления для действий (Action -> float32)
+  float weight = 3;                      // Вес примера (reach probability)
+  int32 iteration = 4;                   // Номер итерации
+}
+
+
+
+// Стадии игры
+enum GameStage {
+  PREFLOP = 0;
+  FLOP = 1;
+  TURN = 2;
+  RIVER = 3;
+  SHOWDOWN = 4;
+}
+
+// Интерфейс Actor
+service Actor {
+  // Получить вероятности действий для игрока
+  rpc GetProbs (GameStateRequest) returns (ActionProbsResponse) {}
+
+  // Получить вероятности действий для игрока
+  rpc GetAvgProbs (GameStateRequest) returns (ActionProbsResponse) {}
+
+  // Тренировать сеть
+  rpc Train (TrainRequest) returns (TrainResponse) {}
+
+  // Тренировать сеть
+  rpc TrainAvg (TrainAvgRequest) returns (TrainResponse) {}
+}
+
+// Запрос состояния игры
+message GameStateRequest {
+  GameState state = 1;
+}
+
+// Ответ с вероятностями действий
+message ActionProbsResponse {
+  map<int32, float> action_probs = 1;  // Карта вероятностей действий
+}
+
+// Дополнительные типы действий (можно расширять)
+enum ActionType {
+  FOLD = 0;
+  CHECK = 1;
+  CALL = 2;
+  RAISE = 3;
+  ALL_IN = 4;
+}
+
+// Запрос на тренировку
+message TrainRequest {
+  int32 current_player = 1;
+  repeated Sample samples = 2;
+}
+
+message TrainAvgRequest {
+  repeated Sample samples = 1;
+}
+message TrainResponse {
+  float loss = 1;
+}

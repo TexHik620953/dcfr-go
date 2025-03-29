@@ -1,5 +1,7 @@
 package nolimitholdem
 
+type Strategy map[Action]float32
+
 type GameStage int
 
 const (
@@ -11,7 +13,7 @@ const (
 	STAGE_SHOWDOWN   = GameStage(5)
 )
 
-type Action int
+type Action int32
 
 const (
 	ACTION_FOLD          = Action(0)
@@ -21,7 +23,7 @@ const (
 	ACTION_ALL_IN        = Action(4)
 )
 
-var action2string = map[Action]string{
+var Action2string = map[Action]string{
 	ACTION_FOLD:          "FOLD",
 	ACTION_CHECK_CALL:    "CHECK_CALL",
 	ACTION_RAISE_HALFPOT: "RAISE_HALFPOT",
@@ -29,7 +31,7 @@ var action2string = map[Action]string{
 	ACTION_ALL_IN:        "ALL_IN",
 }
 
-type Card uint16
+type Card int32
 
 func NewCard(rank, suit int16) Card {
 	return Card(suit*13 + rank)

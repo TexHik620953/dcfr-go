@@ -1,6 +1,9 @@
 package linq
 
-import "math"
+import (
+	"math"
+	"math/rand"
+)
 
 type Number interface {
 	float32 | float64 | int32 | int64
@@ -105,4 +108,27 @@ func ArgMin[T any](data []T, selector func(T) float64) T {
 		}
 	}
 	return r
+}
+
+func Shuffle[T any](data []T, rng *rand.Rand) []T {
+	temp := make([]T, len(data))
+
+	perm := rand.Perm(len(data))
+	for i, v := range perm {
+		temp[v] = data[i]
+	}
+	return temp
+}
+
+func SplitExecute[T any](data []T, splits int, executor func(subarray []T)) {
+	part_size := int(math.Ceil(float64(len(data)) / float64(splits)))
+	for i := range splits {
+		s := i * part_size
+		e := (i + 1) * part_size
+		if e > len(data) {
+			e = len(data)
+		}
+		part := data[s:e]
+		executor(part)
+	}
 }

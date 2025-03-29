@@ -73,32 +73,17 @@ func (m *MemoryBuffer) GetSamples(playerID int, batchSize int) []*Sample {
 		return nil
 	}
 
-	// Выбираем случайные примеры (взвешенно по iteration)
+	if batchSize > len(m.samples[playerID]) {
+		batchSize = len(m.samples[playerID])
+	}
+
+	// Выбираем случайные примеры
 	samples := make([]*Sample, 0, batchSize)
 	for i := 0; i < batchSize; i++ {
-		idx := m.weightedSampleIndex(playerID)
+		idx := m.rng.Int31n(int32(len(m.samples[playerID])))
 		samples = append(samples, m.samples[playerID][idx])
 	}
-
 	return samples
-}
-
-// weightedSampleIndex выбирает индекс с учетом весов примеров
-func (m *MemoryBuffer) weightedSampleIndex(playerID int) int {
-	totalWeight := float32(0)
-	for _, s := range m.samples[playerID] {
-		totalWeight += s.Weight * float32(s.Iteration)
-	}
-
-	target := m.rng.Float32() * totalWeight
-	sum := float32(0)
-	for i, s := range m.samples[playerID] {
-		sum += s.Weight * float32(s.Iteration)
-		if sum >= target {
-			return i
-		}
-	}
-	return len(m.samples[playerID]) - 1
 }
 
 // pruneOldSamples удаляет старые примеры
