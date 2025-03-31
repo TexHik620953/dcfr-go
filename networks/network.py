@@ -4,48 +4,60 @@ from random import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from networks.ops import MultiHeadAttentionBlock
+from networks.ops import MultiHeadAttentionBlock, PositionalEncoding, DenseResidualBlock
 
 
 
 class PokerStrategyNet(nn.Module):
-    def __init__(self, name, num_cards=52, embedding_dim=32, hidden_dim=128):
+    def __init__(self, name, num_cards=52, embedding_dim=64, hidden_dim=256):
         super().__init__()
         self.name = name
-        # Embedding слои
+
+        # Embeddings
+        self.pos_encoder = PositionalEncoding(embedding_dim, max_len=7)
         self.card_embedding = nn.Embedding(num_cards + 1, embedding_dim, padding_idx=num_cards)
-        self.stage_embedding = nn.Embedding(4, embedding_dim)  # PREFLOP/FLOP/TURN/RIVER
-        self.position_embedding = nn.Embedding(3, embedding_dim)  # 0,1,2
+        self.stage_embedding = nn.Embedding(4, embedding_dim)
+        self.position_embedding = nn.Embedding(3, embedding_dim)
 
-        # Модули для обработки игровой информации
+        # Attention для карт
+        self.card_attention = nn.Sequential(
+            MultiHeadAttentionBlock(embedding_dim, num_heads=4),
+            MultiHeadAttentionBlock(embedding_dim, num_heads=4),
+            MultiHeadAttentionBlock(embedding_dim, num_heads=4),
+            MultiHeadAttentionBlock(embedding_dim, num_heads=4),
+        )
+
+
+        # Обработка стеков
         self.stacks_net = nn.Sequential(
-            nn.Linear(3, hidden_dim // 4),
+            nn.Linear(3, hidden_dim // 8),
+            nn.LayerNorm(hidden_dim // 8),
             nn.LeakyReLU()
         )
+        # Обработка ставок
         self.bets_net = nn.Sequential(
-            nn.Linear(3, hidden_dim // 4),
+            nn.Linear(3, hidden_dim // 8),
+            nn.LayerNorm(hidden_dim // 8),
             nn.LeakyReLU()
         )
-        # Модуль для обработки активных игроков
-        self.active_players_net = nn.Sequential(
-            nn.Linear(3, hidden_dim // 4),
+        # Обработка ставок
+        self.ply_mask_net = nn.Sequential(
+            nn.Linear(3, hidden_dim // 8),
+            nn.LayerNorm(hidden_dim // 8),
             nn.LeakyReLU()
-        )
-
-        self.embedding_attention = nn.Sequential(
-            MultiHeadAttentionBlock(embedding_dim, 4),
-            MultiHeadAttentionBlock(embedding_dim, 4),
-            MultiHeadAttentionBlock(embedding_dim, 4),
-
         )
 
         # Основная сеть
         self.main_net = nn.Sequential(
-            nn.Linear(embedding_dim + hidden_dim // 4 * 3, hidden_dim),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_dim, 5)  # 4 действия: FOLD, CHECK/CALL, BET/RAISE, ALL-IN
+            DenseResidualBlock(embedding_dim * 4 + hidden_dim // 8 * 3, hidden_dim),
+            DenseResidualBlock(hidden_dim, hidden_dim),
+            DenseResidualBlock(hidden_dim, hidden_dim),
+            DenseResidualBlock(hidden_dim, hidden_dim),
+            DenseResidualBlock(hidden_dim, hidden_dim),
+            DenseResidualBlock(hidden_dim, hidden_dim),
+            DenseResidualBlock(hidden_dim, hidden_dim),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, 5)
         )
 
         # Инициализация весов
@@ -61,7 +73,7 @@ class PokerStrategyNet(nn.Module):
                 nn.init.constant_(module.bias, 0)
 
     def forward(self, x):
-        public_cards, private_cards, stacks, actions_mask, bets, active_players_mask, stage, current_player_pos = x
+        public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x
         """
         Args:
             public_cards: (batch_size, 5) - индексы карт (padding = num_cards)
@@ -72,32 +84,30 @@ class PokerStrategyNet(nn.Module):
             stage: (batch_size,1) - стадия игры (0-3)
             current_player_pos: (batch_size,1) - позиция текущего игрока (0-2)
         """
+        public_emb = self.card_embedding(public_cards)  # [Batch, 5, Embedding]
+        private_emb = self.card_embedding(private_cards)  # [Batch, 2, Embedding]
+        card_emb = torch.cat((private_emb, public_emb), dim=1)  # [Batch, 7, Embedding]
+        card_emb = self.pos_encoder(card_emb)  # Добавляем позиционные кодировки для публичных карт
 
-        public_emb = self.card_embedding(public_cards)  # (batch_size, 5, embedding_dim)
-        private_emb = self.card_embedding(private_cards)
-        stage_emb = self.stage_embedding(stage)
-        position_emb = self.position_embedding(current_player_pos)
-
-
-        emb = torch.cat((public_emb, private_emb, stage_emb, position_emb), dim=1)
-
-        features  = self.embedding_attention(emb)
-        features = features[:,0,:]
-
-
-        # Игровая информация
-        stacks_features = self.stacks_net(stacks)
-        bets_features = self.bets_net(bets)
-        active_players_features = self.active_players_net(active_players_mask.float())
-
-
-        # Объединяем все фичи
-        combined = torch.cat([
-            features,
-            stacks_features,
-            bets_features,
-            active_players_features,
+        card_attns = self.card_attention(card_emb)
+        card_features = torch.cat([
+            card_attns.mean(dim=1),
+            card_attns.max(dim=1).values
         ], dim=1)
+
+        meta_emb = torch.cat((
+            self.stacks_net(stacks),
+            self.bets_net(bets),
+            self.ply_mask_net(active_players_mask),
+            self.stage_embedding(stage.squeeze(1)),
+            self.position_embedding(current_player_pos.squeeze(1))
+        ), dim=1)
+
+        # Объединение
+        combined = torch.cat((
+            card_features,
+            meta_emb
+        ), dim=1)
 
         # Основная сеть
         logits = self.main_net(combined)

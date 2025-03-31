@@ -4,7 +4,6 @@ import (
 	"dcfr-go/common/linq"
 	"dcfr-go/nolimitholdem"
 	"math/rand"
-	"sort"
 	"sync"
 	"time"
 )
@@ -95,11 +94,6 @@ func (m *MemoryBuffer) GetSamples(playerID int, batchSize int) []*Sample {
 // pruneOldSamples удаляет старые примеры
 func (m *MemoryBuffer) pruneOldSamples(playerID int) {
 	samples := m.samples[playerID]
-
-	// Сортируем по iteration (старые в начале)
-	sort.Slice(samples, func(i, j int) bool {
-		return samples[i].Iteration < samples[j].Iteration
-	})
 
 	// Удаляем часть старых примеров
 	removeCount := int(float32(len(samples)) * m.pruneRatio)

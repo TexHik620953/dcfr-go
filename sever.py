@@ -19,22 +19,20 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 1 нейросеть для стратегии
 avg_network = PokerStrategyNet("avg").to(device)
-#avg_network.load()
-avg_optimizer = torch.optim.Adam(avg_network.parameters(), lr=4e-4, weight_decay=2e-5)
+avg_network.load()
 
 # 3 нейросети для игроков
 ply_networks = [PokerStrategyNet(f"ply{i}").to(device) for i in range(3)]
 for pl_network in ply_networks:
     pl_network.load_state_dict(avg_network.state_dict())
-    #pl_network.load()
+    pl_network.load()
 
-
-ply_optimizers = [torch.optim.Adam(ply_networks[i].parameters(), lr=4e-4, weight_decay=2e-5) for i in range(3)]
+ply_optimizers = [torch.optim.Adam(ply_networks[i].parameters(), lr=3e-5, weight_decay=2e-5) for i in range(3)]
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 train_step = 0
 
-def update_ema(beta=0.995):
+def update_ema(beta=0.997):
     for avg_param, *ply_params in zip(
         avg_network.parameters(),
         *[net.parameters() for net in ply_networks]
@@ -116,17 +114,18 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
             probs = F.softmax(logits, dim=1)
             entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
             entropy = entropy.mean()
-            loss = loss - 0.1 * entropy  # Коэффициент 0.1 можно настраивать
+            loss = loss - 0.01 * entropy  # Коэффициент 0.1 можно настраивать
 
 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
             optimizer.step()
 
 
             tensorboard.add_histogram(f"{name}/logits", logits.detach().cpu(), train_step)
             tensorboard.add_histogram(f"{name}/probs", probs.detach().cpu(), train_step)
             tensorboard.add_histogram(f"{name}/argmax", probs.detach().argmax(dim=1).cpu(), train_step)
-            tensorboard.add_scalar(f"{name}/regrets", regrets.sum().cpu().item(), train_step)
+            tensorboard.add_scalar(f"{name}/regrets", regrets.sum(dim=1).mean().item(), train_step)
             tensorboard.add_scalar(f"{name}/entropy", entropy.cpu().item(), train_step)
 
         network.save()

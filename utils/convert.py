@@ -35,7 +35,7 @@ def convert_pbstate_to_tensor(states, device):
     stakes = torch.tensor(stakes, device=device, dtype=torch.float32)
     actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32)
     player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32)
-    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.int)
+    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.float32)
     stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
     current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
 
@@ -106,7 +106,7 @@ def convert_states_to_batch(samples, device):
     stakes = torch.tensor(stakes, device=device, dtype=torch.float32)
     actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32)
     player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32)
-    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.int)
+    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.float32)
     stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
     current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
 

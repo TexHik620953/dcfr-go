@@ -10,32 +10,9 @@ import (
 )
 
 func main() {
-	/*
-		ctx := context.Background()
-		cfg, err := appconfig.LoadAppConfig()
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-
-
-
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-	*/
-
-	/*
-		f, err := os.Create("cpu.prof")
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	*/
-
-	memoryBuffer := cfr.NewMemoryBuffer(1500000, 0.05)
+	memoryBuffer := cfr.NewMemoryBuffer(700000, 0.2)
 	actionsCache := cfr.NewActionsCache(10000000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("localhost:1338", 10000, 15000)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor("localhost:1338", 15000, 20000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -53,7 +30,7 @@ func main() {
 		go func() {
 			game := nolimitholdem.NewGame(nolimitholdem.GameConfig{
 				RandomSeed:      int64(44 + tID),
-				ChipsForEach:    30,
+				ChipsForEach:    70,
 				NumPlayers:      3,
 				SmallBlindChips: 5,
 			})
@@ -98,10 +75,10 @@ func main() {
 		wg.Wait()
 		log.Printf("Finished traversing, memory size: [%d %d %d]", memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2))
 
-		BATCH_SIZE := 15000
+		BATCH_SIZE := 2000
 		log.Printf("Training")
 		//Train network
-		for range 90 {
+		for range 100 {
 			// Train
 			for ply := range 3 {
 				batch := memoryBuffer.GetSamples(ply, BATCH_SIZE)
@@ -113,8 +90,8 @@ func main() {
 					log.Fatalf("failed to train: %v", err)
 				}
 			}
+			batchExecutor.TrainAvg()
 		}
-		batchExecutor.TrainAvg()
 
 		actionsCache.Clear(-1)
 		actionsCache.Clear(0)

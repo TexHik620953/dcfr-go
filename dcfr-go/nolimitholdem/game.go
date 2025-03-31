@@ -123,7 +123,10 @@ func (h *Game) Reset() *GameState {
 			InChips:       0,
 			Status:        PLAYERSTATUS_ACTIVE,
 		}
+		// Sort players cards
+		slices.Sort(h.players[i].HoleCards[:])
 	}
+
 	h.history = make([]*Game, 0)
 	h.stage = STAGE_PREFLOP
 	h.round_counter = 0
@@ -340,6 +343,8 @@ func (h *Game) GetState(playerId int) *GameState {
 	}
 	copy(state.PublicCards, h.publicCards)
 	copy(state.PrivateCards, h.players[playerId].HoleCards[:])
+	// SORT PRIVATE CARDS
+	slices.Sort(state.PrivateCards)
 
 	for i, ply := range h.players {
 		if ply.Status == PLAYERSTATUS_FOLDED {
