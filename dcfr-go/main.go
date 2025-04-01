@@ -45,12 +45,12 @@ func main() {
 			//Traversing tree
 			for {
 				<-execCh
-				game.Reset()
 				for ply := range game.PlayersCount() {
 					_, err := traverser.TraverseTree(ply)
 					if err != nil {
 						log.Fatalf("failed to traverse tree: %v", err)
 					}
+					game.Reset()
 				}
 				wg.Done()
 			}
@@ -75,10 +75,10 @@ func main() {
 		wg.Wait()
 		log.Printf("Finished traversing, memory size: [%d %d %d]", memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2))
 
-		BATCH_SIZE := 2000
+		BATCH_SIZE := 5000
 		log.Printf("Training")
 		//Train network
-		for range 100 {
+		for range 50 {
 			// Train
 			for ply := range 3 {
 				batch := memoryBuffer.GetSamples(ply, BATCH_SIZE)
@@ -90,8 +90,8 @@ func main() {
 					log.Fatalf("failed to train: %v", err)
 				}
 			}
-			batchExecutor.TrainAvg()
 		}
+		batchExecutor.TrainAvg()
 
 		actionsCache.Clear(-1)
 		actionsCache.Clear(0)

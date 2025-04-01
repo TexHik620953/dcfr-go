@@ -359,3 +359,55 @@ func (h *Game) GetState(playerId int) *GameState {
 	// Private info
 	return state
 }
+
+func (h *Game) GetCurrentNodeChance() float64 {
+	if len(h.history) == 0 {
+		// Первый шаг игры, это вероятность получения двух конкретных карт
+		return 2.0 / (52.0 * 51.0)
+	}
+
+	prevStage := h.history[len(h.history)-1].stage
+
+	// Изменилась улица.
+	if prevStage != h.stage {
+
+		cardsInGame := h.PlayersCount() * 2
+		switch prevStage {
+		case STAGE_FLOP:
+			cardsInGame += 3
+		case STAGE_TURN:
+			cardsInGame += 3
+		case STAGE_RIVER:
+			cardsInGame += 5
+		}
+		cardsLeft := float64(52 - cardsInGame)
+
+		if prevStage == STAGE_PREFLOP {
+			switch h.stage {
+			case STAGE_FLOP:
+				// 3 card
+				return 6.0 / (cardsLeft * (cardsLeft - 1) * (cardsLeft - 2))
+			case STAGE_TURN:
+				// 4 card
+				return 24.0 / (cardsLeft * (cardsLeft - 1) * (cardsLeft - 2) * (cardsLeft - 3))
+			case STAGE_RIVER:
+				// 5 card
+				return 120.0 / (cardsLeft * (cardsLeft - 1) * (cardsLeft - 2) * (cardsLeft - 3) * (cardsLeft - 4))
+			}
+		} else if prevStage == STAGE_FLOP {
+			switch h.stage {
+			case STAGE_TURN:
+				// 1 card
+				return 1.0 / cardsLeft
+			case STAGE_RIVER:
+				// 2 card
+				return 2.0 / (cardsLeft * (cardsLeft - 1))
+			}
+		} else if prevStage == STAGE_TURN {
+			// river - 1 card
+			return 1.0 / cardsLeft
+		}
+
+	}
+	return 1.0
+}

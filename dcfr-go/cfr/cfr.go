@@ -3,6 +3,7 @@ package cfr
 import (
 	"dcfr-go/common/random"
 	"dcfr-go/nolimitholdem"
+	"math"
 	"math/rand"
 	"sync/atomic"
 	"unsafe"
@@ -36,14 +37,9 @@ func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuf
 	return h
 }
 
-func (h *CFR) TraverseTree(playerId int) ([]float32, error) {
-	// Инициализация вероятностей достижения состояния
-	reachProbs := make([]float32, h.coreGame.PlayersCount())
-	for i := range reachProbs {
-		reachProbs[i] = 1.0
-	}
+func (h *CFR) TraverseTree(learnerId int) ([]float32, error) {
 
-	payoffs, err := h.traverser(reachProbs, playerId)
+	payoffs, err := h.traverser(0, learnerId)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +47,15 @@ func (h *CFR) TraverseTree(playerId int) ([]float32, error) {
 	return payoffs, nil
 }
 
-func (h *CFR) traverser(reachProbs []float32, learnerId int) ([]float32, error) {
+func (h *CFR) traverser(logReachProb float32, learnerId int) ([]float32, error) {
 	h.stats.NodesVisited.Add(1)
 
 	if h.coreGame.IsOver() {
 		return h.coreGame.GetPayoffs(), nil
 	}
+	chanceNode := h.coreGame.GetCurrentNodeChance()
+
+	logReachProb += float32(math.Log(chanceNode))
 
 	currentPlayer := h.coreGame.CurrentPlayer()
 	state := h.coreGame.GetState(currentPlayer)
@@ -70,12 +69,10 @@ func (h *CFR) traverser(reachProbs []float32, learnerId int) ([]float32, error) 
 	// For opponent, use only one action
 	if currentPlayer != learnerId {
 		action := nolimitholdem.Action(random.Sample(h.rng, *(*map[int32]float32)(unsafe.Pointer(&actionProbs))))
-		newReachProbs := make([]float32, len(reachProbs))
-		copy(newReachProbs, reachProbs)
-		newReachProbs[currentPlayer] *= actionProbs[action]
+		logReachProb += float32(math.Log(float64(actionProbs[action])))
 
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(newReachProbs, learnerId)
+		childPayoffs, err := h.traverser(logReachProb, learnerId)
 		if err != nil {
 			return nil, err
 		}
@@ -89,22 +86,24 @@ func (h *CFR) traverser(reachProbs []float32, learnerId int) ([]float32, error) 
 	// Iterate over all possible actions
 	actionPayoffs := make(map[nolimitholdem.Action][]float32)
 	for action, action_probability := range actionProbs {
-		//Make a copy of original probabilities
-		newReachProbs := make([]float32, len(reachProbs))
-		copy(newReachProbs, reachProbs)
-		newReachProbs[currentPlayer] *= action_probability
+		logReachProb += float32(math.Log(float64(action_probability)))
 
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(newReachProbs, learnerId)
+		childPayoffs, err := h.traverser(logReachProb, learnerId)
 		if err != nil {
 			return nil, err
 		}
 		h.coreGame.StepBack()
 
+		// Расчитываем ev
+		for i, payoff := range childPayoffs {
+			childPayoffs[i] = payoff * action_probability
+		}
+
 		// Сохраняем результаты
 		actionPayoffs[action] = childPayoffs
 		for i, payoff := range childPayoffs {
-			totalPayoffs[i] += float32(payoff) * action_probability
+			totalPayoffs[i] += payoff
 		}
 	}
 
@@ -122,7 +121,7 @@ func (h *CFR) traverser(reachProbs []float32, learnerId int) ([]float32, error) 
 		}
 	}
 	if len(regrets) > 0 {
-		h.Memory.AddSample(learnerId, state, regrets, reachProbs[learnerId], 0)
+		h.Memory.AddSample(learnerId, state, regrets, logReachProb, 0)
 	}
 
 	return totalPayoffs, nil
