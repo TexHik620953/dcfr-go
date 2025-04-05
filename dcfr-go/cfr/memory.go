@@ -11,8 +11,9 @@ import (
 // Sample хранит данные одного состояния для обучения
 type Sample struct {
 	State     *nolimitholdem.GameState         // Состояние игры
+	Strategy  nolimitholdem.Strategy           // Стратегия
 	Regrets   map[nolimitholdem.Action]float32 // Сожаления для каждого действия
-	Weight    float32                          // Вес примера (reach probability)
+	ReachProb float32                          // Вес примера (reach probability)
 	Iteration int                              // Итерация, на которой был собран пример
 }
 
@@ -45,6 +46,7 @@ func (m *MemoryBuffer) Count(playerID int) int {
 func (m *MemoryBuffer) AddSample(
 	playerID int,
 	state *nolimitholdem.GameState,
+	strategy nolimitholdem.Strategy,
 	regrets map[nolimitholdem.Action]float32,
 	reachProb float32,
 	iteration int,
@@ -55,8 +57,9 @@ func (m *MemoryBuffer) AddSample(
 	// Создаем новый пример
 	sample := &Sample{
 		State:     state.Clone(),
+		Strategy:  strategy,
 		Regrets:   linq.CopyMap(regrets),
-		Weight:    reachProb,
+		ReachProb: reachProb,
 		Iteration: iteration,
 	}
 

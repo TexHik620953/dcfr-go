@@ -37,9 +37,9 @@ func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuf
 	return h
 }
 
-func (h *CFR) TraverseTree(learnerId int) ([]float32, error) {
+func (h *CFR) TraverseTree(learnerId int, cfr_it int) ([]float32, error) {
 
-	payoffs, err := h.traverser(0, learnerId)
+	payoffs, err := h.traverser(0, learnerId, cfr_it)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +47,7 @@ func (h *CFR) TraverseTree(learnerId int) ([]float32, error) {
 	return payoffs, nil
 }
 
-func (h *CFR) traverser(logReachProb float32, learnerId int) ([]float32, error) {
+func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]float32, error) {
 	h.stats.NodesVisited.Add(1)
 
 	if h.coreGame.IsOver() {
@@ -68,11 +68,13 @@ func (h *CFR) traverser(logReachProb float32, learnerId int) ([]float32, error) 
 
 	// For opponent, use only one action
 	if currentPlayer != learnerId {
+		h.Memory.AddSample(-1, state, actionProbs, nil, logReachProb, cfr_it)
+
 		action := nolimitholdem.Action(random.Sample(h.rng, *(*map[int32]float32)(unsafe.Pointer(&actionProbs))))
 		logReachProb += float32(math.Log(float64(actionProbs[action])))
 
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(logReachProb, learnerId)
+		childPayoffs, err := h.traverser(logReachProb, learnerId, cfr_it)
 		if err != nil {
 			return nil, err
 		}
@@ -83,13 +85,14 @@ func (h *CFR) traverser(logReachProb float32, learnerId int) ([]float32, error) 
 		return childPayoffs, nil // Возвращаем payoffs только для сэмплированного действия
 	}
 
+	// Payoffs for every action
+	myActionsPayoff := make(map[nolimitholdem.Action]float32)
 	// Iterate over all possible actions
-	actionPayoffs := make(map[nolimitholdem.Action][]float32)
 	for action, action_probability := range actionProbs {
 		logReachProb += float32(math.Log(float64(action_probability)))
 
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(logReachProb, learnerId)
+		childPayoffs, err := h.traverser(logReachProb, learnerId, cfr_it)
 		if err != nil {
 			return nil, err
 		}
@@ -98,30 +101,25 @@ func (h *CFR) traverser(logReachProb float32, learnerId int) ([]float32, error) 
 		// Расчитываем ev
 		for i, payoff := range childPayoffs {
 			childPayoffs[i] = payoff * action_probability
+			totalPayoffs[i] += childPayoffs[i]
 		}
 
 		// Сохраняем результаты
-		actionPayoffs[action] = childPayoffs
-		for i, payoff := range childPayoffs {
-			totalPayoffs[i] += payoff
-		}
-	}
-
-	if currentPlayer != learnerId {
-		return totalPayoffs, nil
+		myActionsPayoff[action] = childPayoffs[learnerId]
 	}
 
 	// CFR HERE
 	regrets := make(nolimitholdem.Strategy)
-	for action, payoffs := range actionPayoffs {
-		regret := payoffs[learnerId] - totalPayoffs[learnerId]
+	for action, payoffs := range myActionsPayoff {
+		regret := payoffs - totalPayoffs[learnerId]
 		// CFR+: только положительные сожаления
 		if regret > 0 {
 			regrets[action] = regret
 		}
 	}
 	if len(regrets) > 0 {
-		h.Memory.AddSample(learnerId, state, regrets, logReachProb, 0)
+		// Store state, regrets, cfr_iteration
+		h.Memory.AddSample(learnerId, state, nil, regrets, logReachProb, cfr_it)
 	}
 
 	return totalPayoffs, nil

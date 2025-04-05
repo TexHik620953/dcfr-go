@@ -81,3 +81,21 @@ class DenseResidualBlock(nn.Module):
         x = self.layer_norm(x)
 
         return x
+
+
+class CardEmbedding(nn.Module):
+    def __init__(self, embedding_dim):
+        super(CardEmbedding, self).__init__()
+        self.rank = nn.Embedding(13, embedding_dim)
+        self.suit = nn.Embedding(4, embedding_dim)
+        self.card = nn.Embedding(52, embedding_dim)
+    def forward(self, x):
+        B, num_cards = x.shape
+        x = x.view(-1)
+
+        valid = x.ge(0).float()
+        x = x.clamp(min=0)
+
+        embs = self.card(x) + self.rank(x % 13) + self.suit(x // 13)
+        embs = embs * valid.unsqueeze(1)
+        return embs.view(B, num_cards, -1).sum(1)

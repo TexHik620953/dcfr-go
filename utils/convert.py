@@ -21,7 +21,7 @@ def convert_pbstate_to_tensor(states, device):
     actions_mask = np.array(actions_mask)
 
     for i, pc in enumerate(public_cards):
-        public_cards[i] = pc + [52 for i in range(5 - len(pc))]
+        public_cards[i] = pc + [-1 for i in range(5 - len(pc))]
     public_cards = np.array(public_cards)
 
     bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
@@ -63,8 +63,9 @@ def convert_pbstate_to_tensor(states, device):
 
 
 def convert_states_to_batch(samples, device):
-    weights = np.array([s.weight for s in samples])
+    reach_prob = np.array([s.reach_prob for s in samples])
     regrets = [s.regrets for s in samples]
+    strategy = [s.strategy for s in samples]
     iterations = np.array([s.iteration for s in samples])
 
     for i, regret in enumerate(regrets):
@@ -73,6 +74,13 @@ def convert_states_to_batch(samples, device):
             r[k] = regret[k]
         regrets[i] = r
     regrets = np.array(regrets)
+
+    for i, regret in enumerate(strategy):
+        r = np.zeros(5)
+        for k in regret:
+            r[k] = regret[k]
+        strategy[i] = r
+    strategy = np.array(strategy)
 
     active_players_mask = np.array([s.state.active_players_mask for s in samples])
     player_pots = np.array([s.state.players_pots for s in samples])
@@ -92,7 +100,7 @@ def convert_states_to_batch(samples, device):
     actions_mask = np.array(actions_mask)
 
     for i, pc in enumerate(public_cards):
-        public_cards[i] = pc + [52 for i in range(5 - len(pc))]
+        public_cards[i] = pc + [-1 for i in range(5 - len(pc))]
     public_cards = np.array(public_cards)
 
     bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
@@ -111,9 +119,10 @@ def convert_states_to_batch(samples, device):
     current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
 
 
-    weights = torch.tensor(weights, device=device, dtype=torch.float32)
+    reach_prob = torch.tensor(reach_prob, device=device, dtype=torch.float32)
     iterations = torch.tensor(iterations, device=device, dtype=torch.float32)
     regrets = torch.tensor(regrets, device=device, dtype=torch.float32)
+    strategy = torch.tensor(strategy, device=device, dtype=torch.float32)
 
 
     return (public_cards,
@@ -124,4 +133,4 @@ def convert_states_to_batch(samples, device):
             active_players_mask,
             stage,
             current_player
-            ), (weights, iterations, regrets)
+            ), (reach_prob, iterations, regrets, strategy)

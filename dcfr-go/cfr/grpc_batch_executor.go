@@ -35,8 +35,9 @@ func proto2probs(probs *infra.ProbsResponse) nolimitholdem.Strategy {
 func sample2proto(sample *Sample) *infra.Sample {
 	return &infra.Sample{
 		State:     state2proto(sample.State),
+		Strategy:  *(*map[int32]float32)(unsafe.Pointer(&sample.Strategy)),
 		Regrets:   *(*map[int32]float32)(unsafe.Pointer(&sample.Regrets)),
-		Weight:    sample.Weight,
+		ReachProb: sample.ReachProb,
 		Iteration: int32(sample.Iteration),
 	}
 }
@@ -100,6 +101,11 @@ func (h *GRPCBatchExecutor) watcher() {
 	}
 }
 
+func (h *GRPCBatchExecutor) Save() error {
+	_, err := h.actorClient.Save(context.Background(), &infra.Empty{})
+	return err
+}
+
 func (h *GRPCBatchExecutor) Train(learnerId int, samples []*Sample) (float32, error) {
 	req := &infra.TrainRequest{
 		CurrentPlayer: int32(learnerId),
@@ -115,8 +121,13 @@ func (h *GRPCBatchExecutor) Train(learnerId int, samples []*Sample) (float32, er
 	}
 	return resp.Loss, nil
 }
-func (h *GRPCBatchExecutor) TrainAvg() (float32, error) {
-	req := &infra.TrainAvgRequest{}
+func (h *GRPCBatchExecutor) TrainAvg(samples []*Sample) (float32, error) {
+	req := &infra.TrainAvgRequest{
+		Samples: make([]*infra.Sample, len(samples)),
+	}
+	for i, sample := range samples {
+		req.Samples[i] = sample2proto(sample)
+	}
 
 	resp, err := h.actorClient.TrainAvg(context.Background(), req)
 	if err != nil {

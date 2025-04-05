@@ -29,8 +29,15 @@ func (h *ActionsCache) ClearAll() {
 		return safemap.New[nolimitholdem.GameStateHash, nolimitholdem.Strategy]()
 	})
 }
-func (h *ActionsCache) Clear(playerId int) {
-	h.playerStrategyCache.Delete(playerId)
+func (h *ActionsCache) Clear() {
+	keys := make([]int, 0)
+	h.playerStrategyCache.Foreach(func(i int, s Safemap[nolimitholdem.GameStateHash, nolimitholdem.Strategy]) bool {
+		keys = append(keys, i)
+		return true
+	})
+	for _, playerId := range keys {
+		h.playerStrategyCache.Delete(playerId)
+	}
 }
 
 // -1 equals to Average network

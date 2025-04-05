@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import actor_pb2 as actor_pb2
 import actor_pb2_grpc as actor_pb2_grpc
-from networks.network import PokerStrategyNet
+from networks.network import DeepCFRModel
 from utils.convert import convert_pbstate_to_tensor, convert_states_to_batch
 import torch.nn.functional as F
 
@@ -18,28 +18,116 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # 1 нейросеть для стратегии
-avg_network = PokerStrategyNet("avg").to(device)
+avg_network = DeepCFRModel("avg", lr=1e-3).to(device)
 #avg_network.load()
 
-# 3 нейросети для игроков
-ply_networks = [PokerStrategyNet(f"ply{i}").to(device) for i in range(3)]
-for pl_network in ply_networks:
-    pl_network.load_state_dict(avg_network.state_dict())
-    #pl_network.load()
 
-ply_optimizers = [torch.optim.Adam(ply_networks[i].parameters(), lr=2e-5, weight_decay=2e-5) for i in range(3)]
+initial_weigts = avg_network.state_dict()
+
+# 3 нейросети для игроков
+ply_networks = []
+for i in range(3):
+    net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
+    ply_networks.append(net)
+    #net.load()
+    net.load_state_dict(initial_weigts)
+
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 train_step = 0
 
-def update_ema(beta=0.9):
-    for avg_param, *ply_params in zip(
-        avg_network.parameters(),
-        *[net.parameters() for net in ply_networks]
-    ):
-        ply_mean = torch.stack([p.data for p in ply_params]).mean(dim=0)
-        avg_param.data.mul_(beta).add_(ply_mean, alpha=1 - beta)
 
+def train_net(network, samples):
+    global train_step
+
+    train_step += 1
+    batch = convert_states_to_batch(samples, device)
+
+    (public_cards,
+     private_cards,
+     stakes,
+     actions_mask,
+     player_pots,
+     active_players_mask,
+     stage,
+     current_player
+     ), (reach_prob, iterations, regrets, strategy) = batch
+
+    network.optimizer.zero_grad()
+
+    logits = network((public_cards,
+                    private_cards,
+                    stakes,
+                    actions_mask,
+                    player_pots,
+                    active_players_mask,
+                    stage,
+                    current_player
+    ))
+
+    it_weights = (iterations + 1) / (iterations.max() + 1)
+    loss = ((torch.square(logits - regrets)).sum(dim=1) * it_weights).mean()
+
+    probs = F.softmax(logits, dim=1)
+    entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
+    entropy = entropy.mean()
+    loss = loss - 0.005 * entropy
+
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
+    network.optimizer.step()
+
+    tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), train_step)
+    tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), train_step)
+    tensorboard.add_scalar(f"{network.name}/regrets", regrets.sum(dim=1).mean().item(), train_step)
+    # tensorboard.add_scalar(f"{network.name}/entropy", entropy.cpu().item(), train_step)
+
+    return loss.item()
+
+def train_avg_net(samples):
+    global train_step
+    train_step += 1
+
+    batch = convert_states_to_batch(samples, device)
+
+    (public_cards,
+     private_cards,
+     stakes,
+     actions_mask,
+     player_pots,
+     active_players_mask,
+     stage,
+     current_player
+     ), (reach_prob, iterations, regrets, strategy) = batch
+
+    avg_network.optimizer.zero_grad()
+
+    logits = avg_network((public_cards,
+                      private_cards,
+                      stakes,
+                      actions_mask,
+                      player_pots,
+                      active_players_mask,
+                      stage,
+                      current_player
+                      ))
+
+    probs = F.softmax(logits, dim=1)
+
+    it_weights = (iterations + 1) / (iterations.max() + 1)
+    loss = ((torch.square(probs - strategy)).sum(dim=1) * it_weights).mean()
+
+    entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
+    entropy = entropy.mean()
+    loss = loss - 0.005 * entropy
+
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(avg_network.parameters(), 1.0)
+    avg_network.optimizer.step()
+
+    tensorboard.add_histogram(f"{avg_network.name}/logits", logits.detach().cpu(), train_step)
+    tensorboard.add_histogram(f"{avg_network.name}/argmax", logits.detach().argmax(dim=1).cpu(), train_step)
+    return loss.item()
 
 class ActorServicer(actor_pb2_grpc.ActorServicer):
     def __init__(self):
@@ -78,76 +166,25 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
             resp.responses.append(r)
         return resp
 
-    def __train(self, network, optimizer, samples):
-        global train_step
-        for _ in range(1):
-            train_step += 1
-            batch = convert_states_to_batch(samples, device)
-
-            (public_cards,
-             private_cards,
-             stakes,
-             actions_mask,
-             player_pots,
-             active_players_mask,
-             stage,
-             current_player
-             ), (log_weights, iterations, regrets) = batch
-
-            optimizer.zero_grad()
-            logits = network((public_cards,
-             private_cards,
-             stakes,
-             actions_mask,
-             player_pots,
-             active_players_mask,
-             stage,
-             current_player
-             ))
-
-
-            log_weights = (log_weights -log_weights.max()).unsqueeze(1)
-            weights = torch.exp(log_weights)
-            diff = (logits - regrets) * weights
-            loss = torch.square(diff).sum(dim=1).mean()
-
-            '''
-            probs = F.softmax(logits, dim=1)
-            entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
-            entropy = entropy.mean()
-            loss = loss - 0.01 * entropy  # Коэффициент 0.1 можно настраивать
-            '''
-
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
-            optimizer.step()
-
-
-            tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), train_step)
-            tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), train_step)
-            tensorboard.add_scalar(f"{network.name}/regrets", regrets.sum(dim=1).mean().item(), train_step)
-            #tensorboard.add_scalar(f"{network.name}/entropy", entropy.cpu().item(), train_step)
-
-        network.save()
-        return loss.item()
-
     def Train(self, request, context):
-        if len(request.samples) > 0:
-            curr_player = request.current_player
-            net = ply_networks[curr_player]
-            opt = ply_optimizers[curr_player]
-            loss = self.__train(net, opt, request.samples)
-            tensorboard.add_scalar(f"loss/ply{curr_player}", loss, train_step)
+        curr_player = request.current_player
 
-
-            return actor_pb2.TrainResponse(loss=loss)
-        return actor_pb2.TrainResponse(loss=0)
+        net = ply_networks[curr_player]
+        loss = train_net(net, request.samples)
+        tensorboard.add_scalar(f"loss/ply{curr_player}", loss, train_step)
+        return actor_pb2.TrainResponse(loss=loss)
 
     def TrainAvg(self, request, context):
-        update_ema()
-        avg_network.save()
-        return actor_pb2.TrainResponse(loss=0)
+        loss = train_avg_net(request.samples)
+        tensorboard.add_scalar(f"loss/avg", loss, train_step)
+        return actor_pb2.TrainResponse(loss=loss)
 
+    def Save(self, request, context):
+        print("Saving network")
+        avg_network.save()
+        for net in ply_networks:
+            net.save()
+        return actor_pb2.Empty()
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))

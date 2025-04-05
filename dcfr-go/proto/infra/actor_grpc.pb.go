@@ -23,6 +23,7 @@ const (
 	Actor_GetAvgProbs_FullMethodName = "/infra.Actor/GetAvgProbs"
 	Actor_Train_FullMethodName       = "/infra.Actor/Train"
 	Actor_TrainAvg_FullMethodName    = "/infra.Actor/TrainAvg"
+	Actor_Save_FullMethodName        = "/infra.Actor/Save"
 )
 
 // ActorClient is the client API for Actor service.
@@ -39,6 +40,8 @@ type ActorClient interface {
 	Train(ctx context.Context, in *TrainRequest, opts ...grpc.CallOption) (*TrainResponse, error)
 	// Тренировать сеть
 	TrainAvg(ctx context.Context, in *TrainAvgRequest, opts ...grpc.CallOption) (*TrainResponse, error)
+	// Сохранить сеть
+	Save(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type actorClient struct {
@@ -89,6 +92,16 @@ func (c *actorClient) TrainAvg(ctx context.Context, in *TrainAvgRequest, opts ..
 	return out, nil
 }
 
+func (c *actorClient) Save(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, Actor_Save_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ActorServer is the server API for Actor service.
 // All implementations must embed UnimplementedActorServer
 // for forward compatibility.
@@ -103,6 +116,8 @@ type ActorServer interface {
 	Train(context.Context, *TrainRequest) (*TrainResponse, error)
 	// Тренировать сеть
 	TrainAvg(context.Context, *TrainAvgRequest) (*TrainResponse, error)
+	// Сохранить сеть
+	Save(context.Context, *Empty) (*Empty, error)
 	mustEmbedUnimplementedActorServer()
 }
 
@@ -124,6 +139,9 @@ func (UnimplementedActorServer) Train(context.Context, *TrainRequest) (*TrainRes
 }
 func (UnimplementedActorServer) TrainAvg(context.Context, *TrainAvgRequest) (*TrainResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TrainAvg not implemented")
+}
+func (UnimplementedActorServer) Save(context.Context, *Empty) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Save not implemented")
 }
 func (UnimplementedActorServer) mustEmbedUnimplementedActorServer() {}
 func (UnimplementedActorServer) testEmbeddedByValue()               {}
@@ -218,6 +236,24 @@ func _Actor_TrainAvg_Handler(srv interface{}, ctx context.Context, dec func(inte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Actor_Save_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActorServer).Save(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Actor_Save_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActorServer).Save(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Actor_ServiceDesc is the grpc.ServiceDesc for Actor service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -240,6 +276,10 @@ var Actor_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TrainAvg",
 			Handler:    _Actor_TrainAvg_Handler,
+		},
+		{
+			MethodName: "Save",
+			Handler:    _Actor_Save_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

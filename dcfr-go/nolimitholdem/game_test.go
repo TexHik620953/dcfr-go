@@ -69,3 +69,23 @@ func TestPokerGameRollback(t *testing.T) {
 	}
 
 }
+
+func TestPokerGameReset(t *testing.T) {
+	config := GameConfig{
+		RandomSeed:      42,
+		ChipsForEach:    500,
+		NumPlayers:      3,
+		SmallBlindChips: 20,
+	}
+
+	actor := NewRandomActor(rand.New(rand.NewSource(config.RandomSeed)))
+	game := NewGame(config)
+	game.Reset()
+
+	for !game.IsOver() {
+		state := game.GetState(game.CurrentPlayer())
+		action := actor.GetAction(state)
+		game.Step(action)
+	}
+
+}

@@ -5,6 +5,11 @@ package infra;
 option go_package = ".;infra";
 
 //protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/infra/actor.proto
+
+message Empty {
+
+}
+
 // Определение карты
 // Состояние игры
 message GameState {
@@ -21,9 +26,10 @@ message GameState {
 // Тренировочный сэмпл
 message Sample {
   GameState state = 1;                   // Состояние игры
-  map<int32, float> regrets = 2;         // Сожаления для действий (Action -> float32)
-  float weight = 3;                      // Вес примера (reach probability)
-  int32 iteration = 4;                   // Номер итерации
+  map<int32, float> strategy = 2;
+  map<int32, float> regrets = 3;         // Сожаления для действий (Action -> float32)
+  float reach_prob = 4;                      // Вес примера (reach probability)
+  int32 iteration = 5;                   // Номер итерации
 }
 
 
@@ -50,6 +56,9 @@ service Actor {
 
   // Тренировать сеть
   rpc TrainAvg (TrainAvgRequest) returns (TrainResponse) {}
+
+  // Сохранить сеть
+  rpc Save(Empty) returns (Empty) {}
 }
 
 // Запрос состояния игры
