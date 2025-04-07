@@ -16,21 +16,16 @@ import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-# 1 нейросеть для стратегии
-avg_network = DeepCFRModel("avg", lr=1e-3).to(device)
-#avg_network.load()
-
-
-initial_weigts = avg_network.state_dict()
-
 # 3 нейросети для игроков
 ply_networks = []
 for i in range(3):
     net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
     ply_networks.append(net)
-    #net.load()
-    net.load_state_dict(initial_weigts)
+
+
+initial_state = ply_networks[0].state_dict()
+for net in ply_networks[1:]:
+    net.load_state_dict(initial_state)
 
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
@@ -38,9 +33,6 @@ train_step = 0
 
 
 def train_net(network, samples):
-    global train_step
-
-    train_step += 1
     batch = convert_states_to_batch(samples, device)
 
     (public_cards,
@@ -51,7 +43,7 @@ def train_net(network, samples):
      active_players_mask,
      stage,
      current_player
-     ), (reach_prob, iterations, regrets, strategy) = batch
+     ), (reach_prob, iterations, regrets) = batch
 
     network.optimizer.zero_grad()
 
@@ -77,56 +69,12 @@ def train_net(network, samples):
     torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
     network.optimizer.step()
 
-    tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), train_step)
-    tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), train_step)
-    tensorboard.add_scalar(f"{network.name}/regrets", regrets.sum(dim=1).mean().item(), train_step)
-    # tensorboard.add_scalar(f"{network.name}/entropy", entropy.cpu().item(), train_step)
+    tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), network.step)
+    tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), network.step)
+    tensorboard.add_scalar(f"{network.name}/regrets", regrets.sum(dim=1).mean().item(), network.step)
+    tensorboard.add_scalar(f"{network.name}/loss", loss.item(), network.step)
+    network.step+=1
 
-    return loss.item()
-
-def train_avg_net(samples):
-    global train_step
-    train_step += 1
-
-    batch = convert_states_to_batch(samples, device)
-
-    (public_cards,
-     private_cards,
-     stakes,
-     actions_mask,
-     player_pots,
-     active_players_mask,
-     stage,
-     current_player
-     ), (reach_prob, iterations, regrets, strategy) = batch
-
-    avg_network.optimizer.zero_grad()
-
-    logits = avg_network((public_cards,
-                      private_cards,
-                      stakes,
-                      actions_mask,
-                      player_pots,
-                      active_players_mask,
-                      stage,
-                      current_player
-                      ))
-
-    probs = F.softmax(logits, dim=1)
-
-    it_weights = (iterations + 1) / (iterations.max() + 1)
-    loss = ((torch.square(probs - strategy)).sum(dim=1) * it_weights).mean()
-
-    entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
-    entropy = entropy.mean()
-    loss = loss - 0.005 * entropy
-
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(avg_network.parameters(), 1.0)
-    avg_network.optimizer.step()
-
-    tensorboard.add_histogram(f"{avg_network.name}/logits", logits.detach().cpu(), train_step)
-    tensorboard.add_histogram(f"{avg_network.name}/argmax", logits.detach().argmax(dim=1).cpu(), train_step)
     return loss.item()
 
 class ActorServicer(actor_pb2_grpc.ActorServicer):
@@ -145,23 +93,7 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
         for unit_id in range(probs.shape[0]):
             r = actor_pb2.ProbsResponse()
             for i, prob in enumerate(probs[unit_id].tolist()):
-                if prob > 1e-6:
-                    r.action_probs[i] = prob
-            resp.responses.append(r)
-        return resp
-
-    def GetAvgProbs(self, request, context):
-        self.avg_handled+=len(request.state)
-        print(f"Handled: {self.avg_handled} avg requests")
-
-        state, actions_mask = convert_pbstate_to_tensor(request.state, device)
-        probs = avg_network.get_probs(state, actions_mask).cpu().numpy()
-
-        resp = actor_pb2.ActionProbsResponse()
-        for unit_id in range(probs.shape[0]):
-            r = actor_pb2.ProbsResponse()
-            for i, prob in enumerate(probs[unit_id].tolist()):
-                if prob > 1e-6:
+                if prob > 0:
                     r.action_probs[i] = prob
             resp.responses.append(r)
         return resp
@@ -171,19 +103,19 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
 
         net = ply_networks[curr_player]
         loss = train_net(net, request.samples)
-        tensorboard.add_scalar(f"loss/ply{curr_player}", loss, train_step)
-        return actor_pb2.TrainResponse(loss=loss)
-
-    def TrainAvg(self, request, context):
-        loss = train_avg_net(request.samples)
-        tensorboard.add_scalar(f"loss/avg", loss, train_step)
         return actor_pb2.TrainResponse(loss=loss)
 
     def Save(self, request, context):
-        print("Saving network")
-        avg_network.save()
+        print("Saving networks")
         for net in ply_networks:
             net.save()
+        return actor_pb2.Empty()
+
+    def Reset(self, request, context):
+        global initial_state
+        print("Resetting networks")
+        for net in ply_networks:
+            net.load_state_dict(initial_state)
         return actor_pb2.Empty()
 
 def serve():

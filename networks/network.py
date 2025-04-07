@@ -11,6 +11,7 @@ class DeepCFRModel(nn.Module):
     def __init__(self, name, lr=1e-3, embedding_dim=64, hidden_dim=128):
         super(DeepCFRModel, self).__init__()
         self.name = name
+        self.step = 0
 
         self.hole_embedding = CardEmbedding(embedding_dim)  # For hole cards
         self.public_embedding = CardEmbedding(embedding_dim)  # For public cards

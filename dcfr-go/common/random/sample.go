@@ -1,10 +1,11 @@
 package random
 
 import (
+	"fmt"
 	"math/rand"
 )
 
-func Sample(rand *rand.Rand, probs map[int32]float32) int32 {
+func Sample(rand *rand.Rand, probs map[int32]float32) (int32, error) {
 	type actionProb struct {
 		val  int32
 		prob float32
@@ -19,16 +20,16 @@ func Sample(rand *rand.Rand, probs map[int32]float32) int32 {
 
 	// Проверка корректности распределения (опционально)
 	if sum < 0.99 || sum > 1.01 {
-		panic("invalid probs sum != 1")
+		return 0, fmt.Errorf("invalid probs sum != 1")
 	}
 	r := rand.Float32()
 	var cumulativeProb float32 = 0.0
 	for _, ap := range actions {
 		cumulativeProb += ap.prob
 		if r < cumulativeProb {
-			return ap.val
+			return ap.val, nil
 		}
 	}
 
-	return actions[len(actions)-1].val
+	return actions[len(actions)-1].val, nil
 }

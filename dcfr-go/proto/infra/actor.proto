@@ -26,10 +26,9 @@ message GameState {
 // Тренировочный сэмпл
 message Sample {
   GameState state = 1;                   // Состояние игры
-  map<int32, float> strategy = 2;
-  map<int32, float> regrets = 3;         // Сожаления для действий (Action -> float32)
-  float reach_prob = 4;                      // Вес примера (reach probability)
-  int32 iteration = 5;                   // Номер итерации
+  map<int32, float> regrets = 2;         // Сожаления для действий (Action -> float32)
+  float reach_prob = 3;                      // Вес примера (reach probability)
+  int32 iteration = 4;                   // Номер итерации
 }
 
 
@@ -48,17 +47,14 @@ service Actor {
   // Получить вероятности действий для игрока
   rpc GetProbs (GameStateRequest) returns (ActionProbsResponse) {}
 
-  // Получить вероятности действий для игрока
-  rpc GetAvgProbs (GameStateRequest) returns (ActionProbsResponse) {}
-
   // Тренировать сеть
   rpc Train (TrainRequest) returns (TrainResponse) {}
 
-  // Тренировать сеть
-  rpc TrainAvg (TrainAvgRequest) returns (TrainResponse) {}
-
-  // Сохранить сеть
+  // Сохранить сети
   rpc Save(Empty) returns (Empty) {}
+
+  // Сбросить сети до стартового состояния
+  rpc Reset(Empty) returns (Empty) {}
 }
 
 // Запрос состояния игры

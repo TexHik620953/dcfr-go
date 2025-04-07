@@ -21,8 +21,11 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer := cfr.NewMemoryBuffer(10000000, 0.2)
-	actionsCache := cfr.NewActionsCache(20000000, 0.1)
+	memoryBuffer, err := cfr.NewMemoryBuffer(7_000_000, 0.2, "host=localhost user=postgres password=HermanFuLLer dbname=postgres port=5432")
+	if err != nil {
+		log.Fatal(err)
+	}
+	actionsCache := cfr.NewActionsCache(5_000_000, 0.1)
 	batchExecutor, err := cfr.NewGrpcBatchExecutor("localhost:1338", 15000, 30000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
@@ -31,12 +34,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
+	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor, 3)
 
-	threads := 20000
-	execCh := make(chan StartupTask, threads)
+	const CFR_ITERS = 1000
+	const TRAVERSE_ITERS = 100000
+	const TRAIN_ITERS = 5000
+
+	execCh := make(chan StartupTask, TRAVERSE_ITERS)
 	var wg sync.WaitGroup
-	for tID := range threads {
+	for tID := range TRAVERSE_ITERS {
 		go func() {
 			rngMut.Lock()
 			game := nolimitholdem.NewGame(nolimitholdem.GameConfig{
@@ -68,63 +74,55 @@ func main() {
 	}
 
 	// CFR iterations
-	for cfr_it := range 100000 {
-
-		elapsed := bench.MeasureExec(func() {
-			// Run threads
-			for range threads {
-				for ply_id := range 3 {
-					wg.Add(1)
-					execCh <- StartupTask{
-						PlayerId: ply_id,
-						CfrIter:  cfr_it,
+	for cfr_it := 3; cfr_it < CFR_ITERS; cfr_it++ {
+		cfr_it_elapsed := bench.MeasureExec(func() {
+			// Traverse
+			elapsed := bench.MeasureExec(func() {
+				for player_id := range 3 {
+					for range TRAVERSE_ITERS {
+						wg.Add(1)
+						execCh <- StartupTask{
+							PlayerId: player_id,
+							CfrIter:  cfr_it,
+						}
 					}
 				}
+				wg.Wait()
+			})
+			log.Printf("[CFR_IT: %d] Finished traversing in %s. Memory size: [%d, %d, %d]",
+				cfr_it,
+				elapsed,
+				memoryBuffer.Count(0),
+				memoryBuffer.Count(1),
+				memoryBuffer.Count(2),
+			)
+
+			actionsCache.Clear()
+			// Reset network
+			err := batchExecutor.Reset()
+			if err != nil {
+				log.Fatalf("failed to reset networks: %v", err)
 			}
-			// Wait them to finish
-			wg.Wait()
+
+			// Train
+			elapsed = bench.MeasureExec(func() {
+				for player_id := range 3 {
+					for range TRAIN_ITERS {
+						batch := memoryBuffer.GetSamples(player_id, 10000)
+						if len(batch) == 0 {
+							continue
+						}
+						_, err := batchExecutor.Train(player_id, batch)
+						if err != nil {
+							log.Fatalf("failed to train: %v", err)
+						}
+					}
+				}
+			})
+			log.Printf("[CFR_IT: %d] Train iteration finished in %s", cfr_it, elapsed)
 		})
 
-		log.Printf("Finished traversing in %s, memory: [%d, %d, %d, (%d)] trees: %d, nodes: %d",
-			elapsed,
-			memoryBuffer.Count(0),
-			memoryBuffer.Count(1),
-			memoryBuffer.Count(2),
-			memoryBuffer.Count(-1),
-			stats.TreesTraversed.Load(),
-			stats.NodesVisited.Load(),
-		)
-
-		elapsed = bench.MeasureExec(func() {
-			for range 100 {
-				// Train for every player
-				for ply_id := range 3 {
-					batch := memoryBuffer.GetSamples(ply_id, 10000)
-					if len(batch) == 0 {
-						continue
-					}
-					_, err := batchExecutor.Train(ply_id, batch)
-					if err != nil {
-						log.Fatalf("failed to train: %v", err)
-					}
-				}
-				// Train average
-				batch := memoryBuffer.GetSamples(-1, 20000)
-				if len(batch) == 0 {
-					continue
-				}
-				_, err := batchExecutor.TrainAvg(batch)
-				if err != nil {
-					log.Fatalf("failed to train: %v", err)
-				}
-			}
-		})
-		log.Printf("Train finished in %s", elapsed)
-		err := batchExecutor.Save()
-		if err != nil {
-			log.Fatalf("failed to save: %v", err)
-		}
-		actionsCache.Clear()
+		log.Printf("CFR Iteration %d finished in %s", cfr_it, cfr_it_elapsed)
 	}
 
 }

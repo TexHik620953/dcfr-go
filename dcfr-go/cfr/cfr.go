@@ -3,6 +3,7 @@ package cfr
 import (
 	"dcfr-go/common/random"
 	"dcfr-go/nolimitholdem"
+	"log"
 	"math"
 	"math/rand"
 	"sync/atomic"
@@ -68,9 +69,13 @@ func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]floa
 
 	// For opponent, use only one action
 	if currentPlayer != learnerId {
-		h.Memory.AddSample(-1, state, actionProbs, nil, logReachProb, cfr_it)
+		h.Memory.AddStrategySample(state, actionProbs, cfr_it)
 
-		action := nolimitholdem.Action(random.Sample(h.rng, *(*map[int32]float32)(unsafe.Pointer(&actionProbs))))
+		_action, err := random.Sample(h.rng, *(*map[int32]float32)(unsafe.Pointer(&actionProbs)))
+		if err != nil {
+			log.Fatalf("Invalid probs sum")
+		}
+		action := nolimitholdem.Action(_action)
 		logReachProb += float32(math.Log(float64(actionProbs[action])))
 
 		h.coreGame.Step(action)
@@ -119,7 +124,7 @@ func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]floa
 	}
 	if len(regrets) > 0 {
 		// Store state, regrets, cfr_iteration
-		h.Memory.AddSample(learnerId, state, nil, regrets, logReachProb, cfr_it)
+		h.Memory.AddSample(learnerId, state, regrets, logReachProb, cfr_it)
 	}
 
 	return totalPayoffs, nil

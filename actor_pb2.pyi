@@ -32,6 +32,10 @@ CALL: ActionType
 RAISE: ActionType
 ALL_IN: ActionType
 
+class Empty(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
 class GameState(_message.Message):
     __slots__ = ("active_players_mask", "players_pots", "stakes", "legal_actions", "stage", "current_player", "public_cards", "private_cards")
     class LegalActionsEntry(_message.Message):
@@ -60,7 +64,7 @@ class GameState(_message.Message):
     def __init__(self, active_players_mask: _Optional[_Iterable[int]] = ..., players_pots: _Optional[_Iterable[int]] = ..., stakes: _Optional[_Iterable[int]] = ..., legal_actions: _Optional[_Mapping[int, bool]] = ..., stage: _Optional[_Union[GameStage, str]] = ..., current_player: _Optional[int] = ..., public_cards: _Optional[_Iterable[int]] = ..., private_cards: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class Sample(_message.Message):
-    __slots__ = ("state", "regrets", "weight", "iteration")
+    __slots__ = ("state", "regrets", "reach_prob", "iteration")
     class RegretsEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -70,13 +74,13 @@ class Sample(_message.Message):
         def __init__(self, key: _Optional[int] = ..., value: _Optional[float] = ...) -> None: ...
     STATE_FIELD_NUMBER: _ClassVar[int]
     REGRETS_FIELD_NUMBER: _ClassVar[int]
-    WEIGHT_FIELD_NUMBER: _ClassVar[int]
+    REACH_PROB_FIELD_NUMBER: _ClassVar[int]
     ITERATION_FIELD_NUMBER: _ClassVar[int]
     state: GameState
     regrets: _containers.ScalarMap[int, float]
-    weight: float
+    reach_prob: float
     iteration: int
-    def __init__(self, state: _Optional[_Union[GameState, _Mapping]] = ..., regrets: _Optional[_Mapping[int, float]] = ..., weight: _Optional[float] = ..., iteration: _Optional[int] = ...) -> None: ...
+    def __init__(self, state: _Optional[_Union[GameState, _Mapping]] = ..., regrets: _Optional[_Mapping[int, float]] = ..., reach_prob: _Optional[float] = ..., iteration: _Optional[int] = ...) -> None: ...
 
 class GameStateRequest(_message.Message):
     __slots__ = ("state",)

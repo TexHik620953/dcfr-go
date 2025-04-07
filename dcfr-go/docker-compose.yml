@@ -1,0 +1,18 @@
+services:
+  pg-general:
+    container_name: pg
+    hostname: pg-general
+    image: postgres:15
+    volumes:
+      - ./data/postgres-general:/var/lib/postgresql/data:z
+    environment:
+      POSTGRES_PASSWORD: HermanFuLLer
+      POSTGRES_USER: postgres
+      POSTGRES_DB: default
+    ports:
+      - 5432:5432
+    logging:
+        driver: "json-file"
+        options:
+          max-size: "1m"
+          max-file: "1"

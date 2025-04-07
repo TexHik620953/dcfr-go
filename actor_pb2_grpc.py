@@ -40,23 +40,18 @@ class ActorStub(object):
                 request_serializer=actor__pb2.GameStateRequest.SerializeToString,
                 response_deserializer=actor__pb2.ActionProbsResponse.FromString,
                 _registered_method=True)
-        self.GetAvgProbs = channel.unary_unary(
-                '/infra.Actor/GetAvgProbs',
-                request_serializer=actor__pb2.GameStateRequest.SerializeToString,
-                response_deserializer=actor__pb2.ActionProbsResponse.FromString,
-                _registered_method=True)
         self.Train = channel.unary_unary(
                 '/infra.Actor/Train',
                 request_serializer=actor__pb2.TrainRequest.SerializeToString,
                 response_deserializer=actor__pb2.TrainResponse.FromString,
                 _registered_method=True)
-        self.TrainAvg = channel.unary_unary(
-                '/infra.Actor/TrainAvg',
-                request_serializer=actor__pb2.TrainAvgRequest.SerializeToString,
-                response_deserializer=actor__pb2.TrainResponse.FromString,
-                _registered_method=True)
         self.Save = channel.unary_unary(
                 '/infra.Actor/Save',
+                request_serializer=actor__pb2.Empty.SerializeToString,
+                response_deserializer=actor__pb2.Empty.FromString,
+                _registered_method=True)
+        self.Reset = channel.unary_unary(
+                '/infra.Actor/Reset',
                 request_serializer=actor__pb2.Empty.SerializeToString,
                 response_deserializer=actor__pb2.Empty.FromString,
                 _registered_method=True)
@@ -73,13 +68,6 @@ class ActorServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetAvgProbs(self, request, context):
-        """Получить вероятности действий для игрока
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def Train(self, request, context):
         """Тренировать сеть
         """
@@ -87,15 +75,15 @@ class ActorServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def TrainAvg(self, request, context):
-        """Тренировать сеть
+    def Save(self, request, context):
+        """Сохранить сети
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Save(self, request, context):
-        """Сохранить сеть
+    def Reset(self, request, context):
+        """Сбросить сети до стартового состояния
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -109,23 +97,18 @@ def add_ActorServicer_to_server(servicer, server):
                     request_deserializer=actor__pb2.GameStateRequest.FromString,
                     response_serializer=actor__pb2.ActionProbsResponse.SerializeToString,
             ),
-            'GetAvgProbs': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetAvgProbs,
-                    request_deserializer=actor__pb2.GameStateRequest.FromString,
-                    response_serializer=actor__pb2.ActionProbsResponse.SerializeToString,
-            ),
             'Train': grpc.unary_unary_rpc_method_handler(
                     servicer.Train,
                     request_deserializer=actor__pb2.TrainRequest.FromString,
                     response_serializer=actor__pb2.TrainResponse.SerializeToString,
             ),
-            'TrainAvg': grpc.unary_unary_rpc_method_handler(
-                    servicer.TrainAvg,
-                    request_deserializer=actor__pb2.TrainAvgRequest.FromString,
-                    response_serializer=actor__pb2.TrainResponse.SerializeToString,
-            ),
             'Save': grpc.unary_unary_rpc_method_handler(
                     servicer.Save,
+                    request_deserializer=actor__pb2.Empty.FromString,
+                    response_serializer=actor__pb2.Empty.SerializeToString,
+            ),
+            'Reset': grpc.unary_unary_rpc_method_handler(
+                    servicer.Reset,
                     request_deserializer=actor__pb2.Empty.FromString,
                     response_serializer=actor__pb2.Empty.SerializeToString,
             ),
@@ -169,33 +152,6 @@ class Actor(object):
             _registered_method=True)
 
     @staticmethod
-    def GetAvgProbs(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/infra.Actor/GetAvgProbs',
-            actor__pb2.GameStateRequest.SerializeToString,
-            actor__pb2.ActionProbsResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def Train(request,
             target,
             options=(),
@@ -223,33 +179,6 @@ class Actor(object):
             _registered_method=True)
 
     @staticmethod
-    def TrainAvg(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/infra.Actor/TrainAvg',
-            actor__pb2.TrainAvgRequest.SerializeToString,
-            actor__pb2.TrainResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
     def Save(request,
             target,
             options=(),
@@ -264,6 +193,33 @@ class Actor(object):
             request,
             target,
             '/infra.Actor/Save',
+            actor__pb2.Empty.SerializeToString,
+            actor__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Reset(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/infra.Actor/Reset',
             actor__pb2.Empty.SerializeToString,
             actor__pb2.Empty.FromString,
             options,
