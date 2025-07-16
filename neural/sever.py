@@ -1,5 +1,5 @@
 #python -m grpc_tools.protoc -I./dcfr-go/proto/infra/ --python_out=./ --pyi_out=./ --grpc_python_out=./ ./dcfr-go/proto/infra/actor.proto
-
+print("Init")
 import grpc
 from concurrent import futures
 
@@ -13,12 +13,13 @@ from utils.convert import convert_pbstate_to_tensor, convert_states_to_batch
 import torch.nn.functional as F
 
 import torch
-
+print("Init")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+print("Launching on: ", device)
 # 3 нейросети для игроков
 ply_networks = []
 for i in range(3):
+    print("Creating: ", i, " network")
     net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
     ply_networks.append(net)
 
@@ -26,7 +27,7 @@ for i in range(3):
 initial_state = ply_networks[0].state_dict()
 for net in ply_networks[1:]:
     net.load_state_dict(initial_state)
-
+print("Networks created")
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 train_step = 0
@@ -119,9 +120,9 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
         return actor_pb2.Empty()
 
 def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     actor_pb2_grpc.add_ActorServicer_to_server(ActorServicer(), server)
-    server.add_insecure_port("[::]:1338")
+    server.add_insecure_port("0.0.0.0:1338")
     print("Ready")
     server.start()
     server.wait_for_termination()

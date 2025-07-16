@@ -21,12 +21,12 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(7_000_000, 0.2, "host=pg-general user=postgres password=HermanFuLLer dbname=postgres port=5432")
+	memoryBuffer, err := cfr.NewMemoryBuffer(7_000_000, 0.2, "host=pg user=postgres password=HermanFuLLer dbname=postgres port=5432")
 	if err != nil {
 		log.Fatal(err)
 	}
 	actionsCache := cfr.NewActionsCache(5_000_000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("neural:1338", 15000, 30000)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor("neural:1338", 30000, 50000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -38,7 +38,7 @@ func main() {
 
 	const CFR_ITERS = 1000
 	const TRAVERSE_ITERS = 100000
-	const TRAIN_ITERS = 5000
+	const TRAIN_ITERS = 20
 
 	execCh := make(chan StartupTask, TRAVERSE_ITERS)
 	var wg sync.WaitGroup
@@ -108,7 +108,7 @@ func main() {
 			elapsed = bench.MeasureExec(func() {
 				for player_id := range 3 {
 					for range TRAIN_ITERS {
-						batch := memoryBuffer.GetSamples(player_id, 10000)
+						batch := memoryBuffer.GetSamples(player_id, 50000)
 						if len(batch) == 0 {
 							continue
 						}

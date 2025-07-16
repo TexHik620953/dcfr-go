@@ -1,7 +1,7 @@
 services:
   pg-general:
     container_name: pg
-    hostname: pg-general
+    hostname: pg
     image: postgres:15
     volumes:
       - ./data/postgres-general:/var/lib/postgresql/data:z
@@ -18,15 +18,25 @@ services:
           max-file: "1"
   application:
     build: ./dcfr-go
+    depends_on:
+      - neural
+      - pg-general
   neural:
     hostname: neural
-    build: ./neural
+    build:
+      context: ./neural
+      dockerfile: Dockerfile
+    ports:
+      - 1338:1338
+    volumes:
+      - ./data/checkpoints:/app/checkpoints
+      - ./data/tensorboard:/app/tensorboard
   tensorboard:
    image: tensorflow/tensorflow:latest  # Official TensorBoard image
    ports:
      - "6006:6006"  # Expose TensorBoard port
    volumes:
-     - ./logs:/app/logs  # Mount the logs directory
-   command: tensorboard --logdir=/neural/tensorboard --host=0.0.0.0
+     - ./data/tensorboard:/data/logs  # Mount the logs directory
+   command: tensorboard --logdir=/data/logs --host=0.0.0.0
    depends_on:
      - neural
