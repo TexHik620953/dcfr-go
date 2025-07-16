@@ -21,3 +21,12 @@ services:
   neural:
     hostname: neural
     build: ./neural
+  tensorboard:
+   image: tensorflow/tensorflow:latest  # Official TensorBoard image
+   ports:
+     - "6006:6006"  # Expose TensorBoard port
+   volumes:
+     - ./logs:/app/logs  # Mount the logs directory
+   command: tensorboard --logdir=/neural/tensorboard --host=0.0.0.0
+   depends_on:
+     - neural
