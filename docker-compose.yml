@@ -16,3 +16,8 @@ services:
         options:
           max-size: "1m"
           max-file: "1"
+  application:
+    build: ./dcfr-go
+  neural:
+    hostname: neural
+    build: ./neural

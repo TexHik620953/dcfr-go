@@ -21,12 +21,12 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(7_000_000, 0.2, "host=localhost user=postgres password=HermanFuLLer dbname=postgres port=5432")
+	memoryBuffer, err := cfr.NewMemoryBuffer(7_000_000, 0.2, "host=pg-general user=postgres password=HermanFuLLer dbname=postgres port=5432")
 	if err != nil {
 		log.Fatal(err)
 	}
 	actionsCache := cfr.NewActionsCache(5_000_000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("localhost:1338", 15000, 30000)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor("neural:1338", 15000, 30000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
