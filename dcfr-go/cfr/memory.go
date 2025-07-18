@@ -116,7 +116,11 @@ func NewMemoryBuffer(maxSamples int, pruneRatio float32, dsn string) (*MemoryBuf
 	if err != nil {
 		return nil, err
 	}
-	db.AutoMigrate(&StrategySample{})
+
+	err = db.AutoMigrate(&StrategySample{})
+	if err != nil {
+		return nil, err
+	}
 
 	m := &MemoryBuffer{
 		samples:       make(map[int][]*Sample),
