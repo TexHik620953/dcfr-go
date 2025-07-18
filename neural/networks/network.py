@@ -4,7 +4,7 @@ from random import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from networks.ops import MultiHeadAttentionBlock, PositionalEncoding, DenseResidualBlock, CardEmbedding
+from networks.ops import MultiHeadAttentionBlock, PositionalEncoding, DenseResidualBlock, CardEmbedding, ScaledLinear
 
 
 class DeepCFRModel(nn.Module):
@@ -13,20 +13,15 @@ class DeepCFRModel(nn.Module):
         self.name = name
         self.step = 0
 
-        self.hole_embedding = CardEmbedding(embedding_dim)  # For hole cards
-        self.public_embedding = CardEmbedding(embedding_dim)  # For public cards
-        self.stage_embedding = nn.Embedding(4, 4)
-
-        self.position_embedding = nn.Embedding(3, 3)
-
-        self.card_net = nn.Sequential(
-            nn.Linear(embedding_dim * 2, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(0.2)
+        self.card_embedding = CardEmbedding(embedding_dim)  # For cards
+        self.card_pos = PositionalEncoding(embedding_dim, max_len=7)
+        self.card_attn = nn.Sequential(
+            MultiHeadAttentionBlock(hidden_dim=embedding_dim, num_heads=4),
+            nn.Flatten()
         )
+
+        self.stage_embedding = nn.Embedding(4, 32)
+        self.position_embedding = nn.Embedding(3, 32)
 
         self.features_net = nn.Sequential(
             nn.Linear(16, hidden_dim),
@@ -46,9 +41,9 @@ class DeepCFRModel(nn.Module):
             nn.LeakyReLU(0.2),
         )
 
-        self.action_head = nn.Linear(hidden_dim, 5)
+        self.action_head = ScaledLinear(hidden_dim, 5)
 
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=1e-3, weight_decay=2e-5)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=2e-5)
 
     def forward(self, x):
         public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x
@@ -63,12 +58,14 @@ class DeepCFRModel(nn.Module):
             current_player_pos: (batch_size,1) - позиция текущего игрока (0-2)
         """
 
-        cards_features = self.card_net(torch.cat([
-            self.public_embedding(public_cards),
-            self.hole_embedding(private_cards)
-        ], dim=1))
+        cards_emb = self.card_pos(self.card_embedding(torch.cat([
+            public_cards,
+            private_cards
+        ], dim=1)))
+        cards_features = self.card_attn(cards_emb)
 
         raw_features = self.features_net(torch.cat([
+            cards_features,
             stacks,
             bets,
             active_players_mask,
@@ -76,7 +73,7 @@ class DeepCFRModel(nn.Module):
             self.position_embedding(current_player_pos)[:,0,:]
         ], dim=1))
 
-        features = self.main_net(torch.cat([cards_features, raw_features], dim=1))
+        features = self.main_net(raw_features)
 
         return self.action_head(features)
 
