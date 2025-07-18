@@ -43,7 +43,7 @@ class DeepCFRModel(nn.Module):
 
         self.action_head = ScaledLinear(hidden_dim, 5)
 
-        #self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=2e-5)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=2e-5)
 
     def forward(self, x):
         public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x
