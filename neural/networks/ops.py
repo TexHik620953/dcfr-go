@@ -98,7 +98,7 @@ class CardEmbedding(nn.Module):
 
         embs = self.card(x) + self.rank(x % 13) + self.suit(x // 13)
         embs = embs * valid.unsqueeze(1)
-        return embs.view(B, num_cards, -1).sum(1)
+        return embs.view(B, num_cards, -1)
 
 
 class ScaledLinear(nn.Module):

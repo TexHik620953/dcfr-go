@@ -24,11 +24,11 @@ class DeepCFRModel(nn.Module):
         self.position_embedding = nn.Embedding(3, 32)
 
         self.features_net = nn.Sequential(
-            nn.Linear(16, hidden_dim),
+            nn.Linear(8*embedding_dim + 9, 6 * embedding_dim),
             nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(6 * embedding_dim, 6 * embedding_dim),
             nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(6 * embedding_dim, hidden_dim * 2),
             nn.LeakyReLU(0.2)
         )
 
@@ -43,7 +43,7 @@ class DeepCFRModel(nn.Module):
 
         self.action_head = ScaledLinear(hidden_dim, 5)
 
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=2e-5)
+        #self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=2e-5)
 
     def forward(self, x):
         public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x
@@ -57,21 +57,25 @@ class DeepCFRModel(nn.Module):
             stage: (batch_size,1) - стадия игры (0-3)
             current_player_pos: (batch_size,1) - позиция текущего игрока (0-2)
         """
-
-        cards_emb = self.card_pos(self.card_embedding(torch.cat([
+        all_cards = torch.cat([
             public_cards,
             private_cards
-        ], dim=1)))
-        cards_features = self.card_attn(cards_emb)
+        ], dim=1)
+        cards_features = self.card_attn(self.card_pos(self.card_embedding(all_cards)))
 
-        raw_features = self.features_net(torch.cat([
+        stage_features = self.stage_embedding(stage)[:, 0, :]
+        position_features = self.position_embedding(current_player_pos)[:, 0, :]
+
+        raw_features = torch.cat([
             cards_features,
             stacks,
             bets,
             active_players_mask,
-            self.stage_embedding(stage)[:,0,:],
-            self.position_embedding(current_player_pos)[:,0,:]
-        ], dim=1))
+            stage_features,
+            position_features
+        ], dim=1)
+
+        raw_features = self.features_net(raw_features)
 
         features = self.main_net(raw_features)
 
