@@ -133,6 +133,21 @@ func NewMemoryBuffer(maxSamples int, pruneRatio float32, dsn string) (*MemoryBuf
 	return m, nil
 }
 
+func (m *MemoryBuffer) Save() error {
+	f, err := os.Create("bufferdata.json")
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(f).Encode(m.samples)
+}
+func (m *MemoryBuffer) Load() error {
+	f, err := os.Open("bufferdata.json")
+	if err != nil {
+		return err
+	}
+	return json.NewDecoder(f).Decode(&m.samples)
+}
+
 func (m *MemoryBuffer) dbWriter() {
 	buf := make([]*StrategySample, 0, STRATEGY_BATCH)
 	for data := range m.strat_samples {

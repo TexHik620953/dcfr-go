@@ -11,22 +11,34 @@ import actor_pb2_grpc as actor_pb2_grpc
 from networks.network import DeepCFRModel
 from utils.convert import convert_pbstate_to_tensor, convert_states_to_batch
 import torch.nn.functional as F
-
+import datetime
 import torch
 print("Init")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Launching on: ", device)
 # 3 нейросети для игроков
+
+# Создаем игроков
 ply_networks = []
 for i in range(3):
     print("Creating: ", i, " network")
     net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
     ply_networks.append(net)
 
+# Пытаемся загрузить оригинальную сеть
+try:
+    ply_networks[0].load("initial")
+    print("Initial model loaded")
+except:
+    print("Initial model not found, initializing...")
+    ply_networks[0].save("initial")
 
 initial_state = ply_networks[0].state_dict()
+intial_opt_state = ply_networks[0].optimizer.state_dict()
+
 for net in ply_networks[1:]:
     net.load_state_dict(initial_state)
+    net.optimizer.load_state_dict(intial_opt_state)
 print("Networks created")
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
@@ -109,7 +121,7 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
     def Save(self, request, context):
         print("Saving networks")
         for net in ply_networks:
-            net.save()
+            net.save(datetime.datetime.now())
         return actor_pb2.Empty()
 
     def Reset(self, request, context):
@@ -117,6 +129,7 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
         print("Resetting networks")
         for net in ply_networks:
             net.load_state_dict(initial_state)
+            net.optimizer.load_state_dict(intial_opt_state)
         return actor_pb2.Empty()
 
 def serve():

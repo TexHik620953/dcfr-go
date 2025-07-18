@@ -1,3 +1,9 @@
+import datetime
+
+
+print(datetime.datetime.now())
+
+
 import psycopg2
 import json
 

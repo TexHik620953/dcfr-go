@@ -92,14 +92,22 @@ class DeepCFRModel(nn.Module):
         probs = probs / probs.sum(dim=1, keepdim=True)
         return probs
 
-    def save(self):
+    def save(self, name=None):
+        if name is not None:
+            path = f"./checkpoints/{self.name}-{name}.pth"
+        else:
+            path = f"./checkpoints/{self.name}.pth"
+
         os.makedirs(f"./checkpoints", exist_ok=True)
         torch.save({
             'net': self.state_dict(),
             'opt': self.optimizer.state_dict(),
-        }, f"./checkpoints/{self.name}.pth")
+        }, path)
 
-    def load(self):
-        dat = torch.load(f"./checkpoints/{self.name}.pth")
+    def load(self, name=None):
+        if name is not None:
+            dat = torch.load(f"./checkpoints/{self.name}-{name}.pth")
+        else:
+            dat = torch.load(f"./checkpoints/{self.name}.pth")
         self.load_state_dict(dat['net'])
         self.optimizer.load_state_dict(dat['opt'])
