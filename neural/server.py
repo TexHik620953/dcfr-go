@@ -42,7 +42,6 @@ for net in ply_networks[1:]:
 print("Networks created")
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
-train_step = 0
 
 
 def train_net(network, samples):
@@ -71,23 +70,25 @@ def train_net(network, samples):
     ))
 
     it_weights = (iterations + 1) / (iterations.max() + 1)
+    regrets = F.relu(regrets)
+
     loss = ((torch.square(logits - regrets)).sum(dim=1) * it_weights).mean()
 
     probs = F.softmax(logits, dim=1)
     entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
     entropy = entropy.mean()
-    loss = loss - 0.005 * entropy
+    loss = loss - 0.001 * entropy
 
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(network.parameters(), 1.0)
+    torch.nn.utils.clip_grad_norm_(network.parameters(), 7.5)
     network.optimizer.step()
-
-    tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), network.step)
-    tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), network.step)
-    tensorboard.add_scalar(f"{network.name}/regrets", regrets.sum(dim=1).mean().item(), network.step)
-    tensorboard.add_scalar(f"{network.name}/loss", loss.item(), network.step)
+    if network.step % 50 == 0:
+        tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), network.step)
+        tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), network.step)
+        tensorboard.add_scalar(f"{network.name}/regrets", regrets.sum(dim=1).mean().item(), network.step)
+        tensorboard.add_scalar(f"{network.name}/loss", loss.item(), network.step)
     network.step+=1
-
+    
     return loss.item()
 
 class ActorServicer(actor_pb2_grpc.ActorServicer):

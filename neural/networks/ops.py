@@ -19,12 +19,12 @@ class MultiHeadAttentionBlock(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    def forward(self, x, key_padding_mask=None):
         # x: [Batch, Time, Features]
         x = x.transpose(0, 1)  # MultiheadAttention ожидает [Time, Batch, Features]
 
         # Self-Attention
-        attn_out, _ = self.attention(x, x, x)
+        attn_out, _ = self.attention(x, x, x,key_padding_mask=key_padding_mask)
         attn_out = self.dropout(attn_out)
         x = self.norm1(x + attn_out)  # Residual + Norm
 
