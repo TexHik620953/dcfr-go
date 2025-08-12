@@ -24,13 +24,13 @@ class DeepCFRModel(nn.Module):
 
         self.features_net = nn.Sequential(
             nn.Linear(7 * embedding_dim + 9 + 32 + 32, 6 * embedding_dim),
-            nn.BatchNorm1d(6 * embedding_dim),
+            nn.LayerNorm(6 * embedding_dim),
             nn.LeakyReLU(0.2),
             nn.Linear(6 * embedding_dim, 6 * embedding_dim),
-            nn.BatchNorm1d(6 * embedding_dim),
+            nn.LayerNorm(6 * embedding_dim),
             nn.LeakyReLU(0.2),
             nn.Linear(6 * embedding_dim, hidden_dim * 2),
-            nn.BatchNorm1d(hidden_dim * 2),
+            nn.LayerNorm(hidden_dim * 2),
             nn.LeakyReLU(0.2)
         )
 
