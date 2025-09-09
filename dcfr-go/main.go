@@ -25,7 +25,7 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(4_000_000, 0.2, "host=pg user=postgres password=HermanFuLLer dbname=postgres port=5432")
+	memoryBuffer, err := cfr.NewMemoryBuffer(10_000_000, 0.2, "host=pg user=postgres password=HermanFuLLer dbname=postgres port=5432")
 	if err != nil {
 		log.Fatal(err)
 	}

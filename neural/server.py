@@ -77,10 +77,10 @@ def train_net(network, samples):
     probs = F.softmax(logits, dim=1)
     entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
     entropy = entropy.mean()
-    loss = loss - 0.001 * entropy
+    loss = loss - 0.005 * entropy
 
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(network.parameters(), 7.5)
+    torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
     network.optimizer.step()
     if network.step % 50 == 0:
         tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), network.step)
