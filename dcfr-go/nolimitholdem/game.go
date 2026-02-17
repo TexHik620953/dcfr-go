@@ -114,17 +114,25 @@ func NewGame(config GameConfig) *Game {
 func (h *Game) Reset() *GameState {
 	//Reset deck
 	h.deck.Reset()
-	// Create players, and deal hole cards
+	// Create players
 	for i := range h.config.NumPlayers {
 		h.players[i] = &Player{
 			InitChips:     int(h.config.ChipsForEach),
 			RemainedChips: int(h.config.ChipsForEach),
-			HoleCards:     [2]Card{h.deck.Get(), h.deck.Get()},
+			HoleCards:     [2]Card{},
 			InChips:       0,
 			Status:        PLAYERSTATUS_ACTIVE,
 		}
 		// Sort players cards
 		slices.Sort(h.players[i].HoleCards[:])
+	}
+
+	// Deal hole cards
+	for i := range h.players {
+		h.players[i].HoleCards[0] = h.deck.Get()
+	}
+	for i := range h.players {
+		h.players[i].HoleCards[1] = h.deck.Get()
 	}
 
 	h.history = make([]*Game, 0)
@@ -361,9 +369,21 @@ func (h *Game) GetState(playerId int) *GameState {
 }
 
 func (h *Game) GetCurrentNodeChance() float64 {
+	// Корневое состояние
+	// В классическом CFR вероятность достижения корня всегда равна 1, потому что мы рассматриваем дерево игры для фиксированной раздачи.
+	/*
+		if len(h.history) == 0 {
+			// Первый шаг игры, это вероятность получения двух конкретных карт при последовательной раздаче.
+			playerID := h.CurrentPlayer()
+			firstCardNum := 52 - playerID
+			secondCardNum := 52 - playerID - h.PlayersCount()
+
+			return 2.0 / (float64(firstCardNum) * float64(secondCardNum))
+		}
+	*/
+
 	if len(h.history) == 0 {
-		// Первый шаг игры, это вероятность получения двух конкретных карт
-		return 2.0 / (52.0 * 51.0)
+		return 1.0
 	}
 
 	prevStage := h.history[len(h.history)-1].stage

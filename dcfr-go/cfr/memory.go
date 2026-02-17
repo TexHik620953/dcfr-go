@@ -17,6 +17,17 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+type IMemoryBuffer interface {
+	AddStrategySample(state *nolimitholdem.GameState, strategy nolimitholdem.Strategy, iteration int)
+	AddSample(
+		playerID int,
+		state *nolimitholdem.GameState,
+		regrets map[nolimitholdem.Action]float32,
+		reachProb float32,
+		iteration int,
+	)
+}
+
 const STRATEGY_BATCH = 5000
 const WRITER_THREADS = 100
 

@@ -1,6 +1,6 @@
 package nolimitholdem
 
-type Strategy map[Action]float32
+type Strategy = map[Action]float32
 
 type GameStage int
 
@@ -13,7 +13,7 @@ const (
 	STAGE_SHOWDOWN   = GameStage(5)
 )
 
-type Action int32
+type Action = int32
 
 const (
 	ACTION_FOLD          = Action(0)
