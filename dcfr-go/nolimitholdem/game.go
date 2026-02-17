@@ -274,59 +274,121 @@ func (h *Game) IsOver() bool {
 }
 
 func (h *Game) GetPayoffs() []float32 {
-	// Collect cards for all players and total chips
-	active_players := 0
-	players_cards := make([][]Card, h.config.NumPlayers)
-	public_cards := make([]Card, len(h.publicCards))
-	copy(public_cards, h.publicCards)
+	n := h.config.NumPlayers
+	payouts := make([]float32, n)
+
+	playerBets := make([]int, n)
+	playersCards := make([][]Card, n)
+	publicCards := make([]Card, len(h.publicCards))
+	copy(publicCards, h.publicCards)
+
+	activeCount := 0
 	for i, p := range h.players {
+		playerBets[i] = p.InChips
 		if p.Status == PLAYERSTATUS_ACTIVE || p.Status == PLAYERSTATUS_ALLIN {
-			players_cards[i] = make([]Card, 2)
-			copy(players_cards[i], p.HoleCards[:])
-			active_players++
-		} else {
-			players_cards[i] = nil
+			playersCards[i] = make([]Card, 2)
+			copy(playersCards[i], p.HoleCards[:])
+			activeCount++
 		}
 	}
-	payouts := make([]float32, len(h.players))
-	totalPot := float32(0)
-	playerBets := make([]float32, len(h.players))
 
-	// 1. Собираем общий банк и ставки игроков
-	for i, p := range h.players {
-		playerBets[i] = float32(p.InChips)
-		totalPot += playerBets[i]
-	}
-	var winners []int
-
-	// 2. Определяем победителей
-	if active_players > 1 {
-		winners = ComputeWinners(players_cards, public_cards)
-	} else {
-		winners = make([]int, h.PlayersCount())
+	// Everyone folded except one — no showdown needed
+	if activeCount <= 1 {
+		totalPot := 0
+		for _, b := range playerBets {
+			totalPot += b
+		}
 		for i, p := range h.players {
-			if p.Status == PLAYERSTATUS_FOLDED {
-				winners[i] = 0
+			if p.Status != PLAYERSTATUS_FOLDED {
+				payouts[i] = float32(totalPot - playerBets[i])
 			} else {
-				winners[i] = 1
+				payouts[i] = -float32(playerBets[i])
+			}
+		}
+		return payouts
+	}
+
+	// Evaluate hand ranks for active players
+	handRanks := make([]HandRank, n)
+	for i, cards := range playersCards {
+		if cards == nil {
+			handRanks[i] = HandRank{-1}
+		} else {
+			handRanks[i] = EvaluateHandRank(ConcatCards(cards, publicCards))
+		}
+	}
+
+	// Side pot calculation: get sorted unique bet levels
+	betLevels := make([]int, 0, n)
+	for _, b := range playerBets {
+		if b > 0 {
+			found := false
+			for _, bl := range betLevels {
+				if bl == b {
+					found = true
+					break
+				}
+			}
+			if !found {
+				betLevels = append(betLevels, b)
 			}
 		}
 	}
+	slices.Sort(betLevels)
 
-	// 3. Делим банк между победителями
-	if len(winners) == 0 {
-		return payouts // Ничья (все получают 0)
-	}
+	// Distribute each side pot to its winner(s)
+	winnings := make([]float32, n)
+	prevLevel := 0
+	for _, level := range betLevels {
+		potSize := 0
+		eligible := make([]int, 0, n)
 
-	winShare := totalPot
-	for i := range payouts {
-		if winners[i] == 1 {
-			payouts[i] = winShare - playerBets[i] // Чистый выигрыш
-		} else {
-			payouts[i] = -playerBets[i] // Чистый проигрыш (только свои ставки)
+		for i := range n {
+			contrib := min(playerBets[i], level) - prevLevel
+			if contrib < 0 {
+				contrib = 0
+			}
+			potSize += contrib
+
+			if playersCards[i] != nil && playerBets[i] >= level {
+				eligible = append(eligible, i)
+			}
 		}
+
+		if potSize == 0 || len(eligible) == 0 {
+			prevLevel = level
+			continue
+		}
+
+		// Find best hand among eligible
+		bestRank := handRanks[eligible[0]]
+		for _, idx := range eligible[1:] {
+			if CompareHandRanks(handRanks[idx], bestRank) > 0 {
+				bestRank = handRanks[idx]
+			}
+		}
+
+		winnerCount := 0
+		for _, idx := range eligible {
+			if CompareHandRanks(handRanks[idx], bestRank) == 0 {
+				winnerCount++
+			}
+		}
+
+		share := float32(potSize) / float32(winnerCount)
+		for _, idx := range eligible {
+			if CompareHandRanks(handRanks[idx], bestRank) == 0 {
+				winnings[idx] += share
+			}
+		}
+
+		prevLevel = level
 	}
 
+	// Net payoffs = winnings - investment
+	for i := range payouts {
+		payouts[i] = winnings[i] - float32(playerBets[i])
+	}
 	return payouts
 }
 
@@ -368,66 +430,3 @@ func (h *Game) GetState(playerId int) *GameState {
 	return state
 }
 
-func (h *Game) GetCurrentNodeChance() float64 {
-	// Корневое состояние
-	// В классическом CFR вероятность достижения корня всегда равна 1, потому что мы рассматриваем дерево игры для фиксированной раздачи.
-	/*
-		if len(h.history) == 0 {
-			// Первый шаг игры, это вероятность получения двух конкретных карт при последовательной раздаче.
-			playerID := h.CurrentPlayer()
-			firstCardNum := 52 - playerID
-			secondCardNum := 52 - playerID - h.PlayersCount()
-
-			return 2.0 / (float64(firstCardNum) * float64(secondCardNum))
-		}
-	*/
-
-	if len(h.history) == 0 {
-		return 1.0
-	}
-
-	prevStage := h.history[len(h.history)-1].stage
-
-	// Изменилась улица.
-	if prevStage != h.stage {
-
-		cardsInGame := h.PlayersCount() * 2
-		switch prevStage {
-		case STAGE_FLOP:
-			cardsInGame += 3
-		case STAGE_TURN:
-			cardsInGame += 4
-		case STAGE_RIVER:
-			cardsInGame += 5
-		}
-		cardsLeft := float64(52 - cardsInGame)
-
-		if prevStage == STAGE_PREFLOP {
-			switch h.stage {
-			case STAGE_FLOP:
-				// 3 card
-				return 6.0 / (cardsLeft * (cardsLeft - 1) * (cardsLeft - 2))
-			case STAGE_TURN:
-				// 4 card
-				return 24.0 / (cardsLeft * (cardsLeft - 1) * (cardsLeft - 2) * (cardsLeft - 3))
-			case STAGE_RIVER:
-				// 5 card
-				return 120.0 / (cardsLeft * (cardsLeft - 1) * (cardsLeft - 2) * (cardsLeft - 3) * (cardsLeft - 4))
-			}
-		} else if prevStage == STAGE_FLOP {
-			switch h.stage {
-			case STAGE_TURN:
-				// 1 card
-				return 1.0 / cardsLeft
-			case STAGE_RIVER:
-				// 2 card
-				return 2.0 / (cardsLeft * (cardsLeft - 1))
-			}
-		} else if prevStage == STAGE_TURN {
-			// river - 1 card
-			return 1.0 / cardsLeft
-		}
-
-	}
-	return 1.0
-}

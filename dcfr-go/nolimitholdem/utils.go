@@ -4,27 +4,76 @@ import (
 	"slices"
 )
 
-func remove(l []Card, item Card) []Card {
-	for i, other := range l {
-		if other == item {
-			return append(l[:i], l[i+1:]...)
+// HandRank is a comparable rank vector for lexicographic comparison.
+// Format: [category, ...ranks in priority order]
+type HandRank []int16
+
+func CompareHandRanks(a, b HandRank) int {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if a[i] != b[i] {
+			if a[i] > b[i] {
+				return 1
+			}
+			return -1
 		}
 	}
-	return l
+	return len(a) - len(b)
 }
 
 func ConcatCards(holeCards, publicCards []Card) []Card {
-	ply_total_cards := make([]Card, 0)
-	ply_total_cards = append(ply_total_cards, holeCards...)
-	ply_total_cards = append(ply_total_cards, publicCards...)
-	return ply_total_cards
+	result := make([]Card, 0, len(holeCards)+len(publicCards))
+	result = append(result, holeCards...)
+	result = append(result, publicCards...)
+	return result
 }
 
-// Return flash cards with one suit
+func getKickers(allCards []Card, comboCards []Card, numKickers int) []int16 {
+	used := make(map[Card]bool, len(comboCards))
+	for _, c := range comboCards {
+		used[c] = true
+	}
+	remaining := make([]Card, 0, len(allCards)-len(comboCards))
+	for _, c := range allCards {
+		if !used[c] {
+			remaining = append(remaining, c)
+		}
+	}
+	slices.SortFunc(remaining, func(a, b Card) int {
+		return int(b.GetCardRank() - a.GetCardRank())
+	})
+	result := make([]int16, 0, numKickers)
+	for i := 0; i < numKickers && i < len(remaining); i++ {
+		result = append(result, remaining[i].GetCardRank())
+	}
+	return result
+}
+
+func straightTopRank(combo []Card) int16 {
+	hasAce := false
+	hasTwo := false
+	for _, c := range combo {
+		if c.GetCardRank() == 12 {
+			hasAce = true
+		}
+		if c.GetCardRank() == 0 {
+			hasTwo = true
+		}
+	}
+	if hasAce && hasTwo {
+		return 3 // A-2-3-4-5: top is 5 (rank 3)
+	}
+	maxRank := int16(0)
+	for _, c := range combo {
+		if c.GetCardRank() > maxRank {
+			maxRank = c.GetCardRank()
+		}
+	}
+	return maxRank
+}
+
+// GetFlush returns flush cards (all cards of the flush suit)
 func GetFlush(cards ...Card) ([]Card, bool) {
-	// For every suit
 	for suit := range 4 {
-		// Count cards
 		cnt := 0
 		for _, c := range cards {
 			if c.GetCardSuite() == int16(suit) {
@@ -32,27 +81,24 @@ func GetFlush(cards ...Card) ([]Card, bool) {
 			}
 		}
 		if cnt >= 5 {
-			// We got flash here
-			flash_cards := make([]Card, 0)
+			flushCards := make([]Card, 0, cnt)
 			for _, c := range cards {
 				if c.GetCardSuite() == int16(suit) {
-					flash_cards = append(flash_cards, c)
+					flushCards = append(flushCards, c)
 				}
 			}
-			return flash_cards, true
+			return flushCards, true
 		}
 	}
 	return nil, false
 }
 
-// Returns cards of straight
+// GetStraight returns the HIGHEST straight from given cards
 func GetStraight(cards ...Card) ([]Card, bool) {
-	// Сортируем карты по рангу (от меньшего к большему)
 	slices.SortFunc(cards, func(c1, c2 Card) int {
 		return int(c1.GetCardRank()) - int(c2.GetCardRank())
 	})
 
-	// Убираем дубликаты рангов (например, два короля)
 	uniqueCards := make([]Card, 0, len(cards))
 	prevRank := int16(-1)
 	for _, c := range cards {
@@ -62,11 +108,29 @@ func GetStraight(cards ...Card) ([]Card, bool) {
 		}
 	}
 
-	// Проверяем особый случай: стрит от туза до 5 (A-2-3-4-5)
+	// Check normal straights first (from highest window to find best)
+	if len(uniqueCards) >= 5 {
+		for i := len(uniqueCards) - 5; i >= 0; i-- {
+			if uniqueCards[i+4].GetCardRank()-uniqueCards[i].GetCardRank() == 4 {
+				straight := make([]Card, 0, 5)
+				targetRank := uniqueCards[i].GetCardRank()
+				for j := 0; j < 5; j++ {
+					for _, c := range cards {
+						if c.GetCardRank() == targetRank+int16(j) {
+							straight = append(straight, c)
+							break
+						}
+					}
+				}
+				return straight, true
+			}
+		}
+	}
+
+	// Wheel (A-2-3-4-5) as fallback
 	hasAce := len(uniqueCards) > 0 && uniqueCards[len(uniqueCards)-1].GetCardRank() == 12
 	hasTwo := len(uniqueCards) > 0 && uniqueCards[0].GetCardRank() == 0
 	if hasAce && hasTwo {
-		// Проверяем наличие 3,4,5
 		required := []int16{1, 2, 3}
 		allPresent := true
 		for _, r := range required {
@@ -83,7 +147,6 @@ func GetStraight(cards ...Card) ([]Card, bool) {
 			}
 		}
 		if allPresent {
-			// Собираем стрит A-2-3-4-5
 			straight := make([]Card, 0, 5)
 			for _, r := range []int16{12, 0, 1, 2, 3} {
 				for _, c := range cards {
@@ -97,32 +160,10 @@ func GetStraight(cards ...Card) ([]Card, bool) {
 		}
 	}
 
-	// Проверяем обычные стриты (5 подряд)
-	if len(uniqueCards) >= 5 {
-		for i := 0; i <= len(uniqueCards)-5; i++ {
-			// Проверяем 5 карт подряд
-			if uniqueCards[i+4].GetCardRank()-uniqueCards[i].GetCardRank() == 4 {
-				// Нашли стрит, собираем карты
-				straight := make([]Card, 0, 5)
-				targetRank := uniqueCards[i].GetCardRank()
-				for j := 0; j < 5; j++ {
-					for _, c := range cards {
-						if c.GetCardRank() == targetRank+int16(j) {
-							straight = append(straight, c)
-							break
-						}
-					}
-				}
-				return straight, true
-			}
-		}
-	}
-
 	return nil, false
 }
 
-// Return straight flash cards
-func GetStraightFlash(cards ...Card) ([]Card, bool) {
+func GetStraightFlush(cards ...Card) ([]Card, bool) {
 	flashCards, isFlash := GetFlush(cards...)
 	if !isFlash {
 		return nil, false
@@ -130,154 +171,183 @@ func GetStraightFlash(cards ...Card) ([]Card, bool) {
 	return GetStraight(flashCards...)
 }
 
-// Returns four cards
 func GetFour(cards ...Card) ([]Card, bool) {
 	rankCount := make(map[int16][]Card)
-
 	for _, c := range cards {
-		rank := c.GetCardRank()
-		rankCount[rank] = append(rankCount[rank], c)
+		rankCount[c.GetCardRank()] = append(rankCount[c.GetCardRank()], c)
 	}
-
-	for _, cards := range rankCount {
-		if len(cards) >= 4 {
-			// Возвращаем 4 карты одного ранга + старшую карту (кикер)
-			result := cards[:4]
-			return result, true
+	var best []Card
+	for _, group := range rankCount {
+		if len(group) >= 4 {
+			if best == nil || group[0].GetCardRank() > best[0].GetCardRank() {
+				best = group[:4]
+			}
 		}
 	}
-
+	if best != nil {
+		return best, true
+	}
 	return nil, false
 }
 
-// Returns three cards
 func GetThree(cards ...Card) ([]Card, bool) {
 	rankCount := make(map[int16][]Card)
-
 	for _, c := range cards {
-		rank := c.GetCardRank()
-		rankCount[rank] = append(rankCount[rank], c)
+		rankCount[c.GetCardRank()] = append(rankCount[c.GetCardRank()], c)
 	}
-
-	for _, cards := range rankCount {
-		if len(cards) >= 3 {
-			// Возвращаем 3 карты одного ранга + 2 старшие карты (кикеры)
-			result := cards[:3]
-			return result, true
+	var best []Card
+	for _, group := range rankCount {
+		if len(group) >= 3 {
+			if best == nil || group[0].GetCardRank() > best[0].GetCardRank() {
+				best = group[:3]
+			}
 		}
 	}
-
+	if best != nil {
+		return best, true
+	}
 	return nil, false
 }
 
-// Returns pair cards
 func GetPair(cards ...Card) ([]Card, bool) {
 	rankCount := make(map[int16][]Card)
-
 	for _, c := range cards {
-		rank := c.GetCardRank()
-		rankCount[rank] = append(rankCount[rank], c)
+		rankCount[c.GetCardRank()] = append(rankCount[c.GetCardRank()], c)
 	}
-
-	var pairs [][]Card
-	for _, cards := range rankCount {
-		if len(cards) >= 2 {
-			pairs = append(pairs, cards[:2])
+	var best []Card
+	for _, group := range rankCount {
+		if len(group) >= 2 {
+			if best == nil || group[0].GetCardRank() > best[0].GetCardRank() {
+				best = group[:2]
+			}
 		}
 	}
-
-	if len(pairs) > 0 {
-		// Сортируем пары по старшинству
-		slices.SortFunc(pairs, func(a, b []Card) int {
-			return int(b[0].GetCardRank()) - int(a[0].GetCardRank())
-		})
-
-		// Берем старшую пару
-		result := pairs[0]
-		return result, true
+	if best != nil {
+		return best, true
 	}
-
 	return nil, false
 }
 
 func GetTwoPairs(cards ...Card) ([]Card, bool) {
-	// Создаем мапу для подсчета карт каждого ранга
-	rankMap := make(map[int16][]Card)
-
-	// Заполняем мапу
-	for _, card := range cards {
-		rank := card.GetCardRank()
-		rankMap[rank] = append(rankMap[rank], card)
+	rankCount := make(map[int16][]Card)
+	for _, c := range cards {
+		rankCount[c.GetCardRank()] = append(rankCount[c.GetCardRank()], c)
 	}
 
-	// Собираем все пары
 	var pairs [][]Card
-	for _, cards := range rankMap {
-		if len(cards) >= 2 {
-			pairs = append(pairs, cards[:2]) // Берем первые 2 карты этого ранга
+	for _, group := range rankCount {
+		if len(group) >= 2 {
+			pairs = append(pairs, group[:2])
 		}
 	}
-
-	// Если меньше двух пар - комбинации нет
 	if len(pairs) < 2 {
 		return nil, false
 	}
-
-	// Сортируем пары по старшинству (от самой старшей к младшей)
 	slices.SortFunc(pairs, func(a, b []Card) int {
 		return int(b[0].GetCardRank()) - int(a[0].GetCardRank())
 	})
-
-	// Берем две старшие пары
-	result := append(pairs[0], pairs[1]...)
+	result := make([]Card, 0, 4)
+	result = append(result, pairs[0]...)
+	result = append(result, pairs[1]...)
 	return result, true
 }
 
-// Returns full-house cards
 func GetFullHouse(cards ...Card) ([]Card, bool) {
 	rankCount := make(map[int16][]Card)
-
 	for _, c := range cards {
-		rank := c.GetCardRank()
-		rankCount[rank] = append(rankCount[rank], c)
+		rankCount[c.GetCardRank()] = append(rankCount[c.GetCardRank()], c)
 	}
 
-	var threeOfAKind []Card
-	var pair []Card
-
-	for _, cards := range rankCount {
-		if len(cards) >= 3 {
-			if threeOfAKind == nil || cards[0].GetCardRank() > threeOfAKind[0].GetCardRank() {
-				threeOfAKind = cards[:3]
+	var trips []Card
+	for _, group := range rankCount {
+		if len(group) >= 3 {
+			if trips == nil || group[0].GetCardRank() > trips[0].GetCardRank() {
+				trips = group[:3]
 			}
 		}
 	}
-
-	if threeOfAKind == nil {
+	if trips == nil {
 		return nil, false
 	}
 
-	for _, cards := range rankCount {
-		if len(cards) >= 2 && cards[0].GetCardRank() != threeOfAKind[0].GetCardRank() {
-			if pair == nil || cards[0].GetCardRank() > pair[0].GetCardRank() {
-				pair = cards[:2]
+	var pair []Card
+	for _, group := range rankCount {
+		if len(group) >= 2 && group[0].GetCardRank() != trips[0].GetCardRank() {
+			if pair == nil || group[0].GetCardRank() > pair[0].GetCardRank() {
+				pair = group[:2]
 			}
 		}
 	}
-
-	if pair != nil {
-		return append(threeOfAKind, pair...), true
+	if pair == nil {
+		return nil, false
 	}
 
-	return nil, false
+	result := make([]Card, 0, 5)
+	result = append(result, trips...)
+	result = append(result, pair...)
+	return result, true
 }
 
-func EvaluateHand(cards ...Card) ([]Card, int, string) {
-	if len(cards) != 7 {
-		panic("not enough cards for evaluations, 7 is required")
+// EvaluateHandRank returns a comparable HandRank for 7 cards (2 hole + 5 community)
+func EvaluateHandRank(allCards []Card) HandRank {
+	if combo, ok := GetStraightFlush(allCards...); ok {
+		return HandRank{8, straightTopRank(combo)}
 	}
-	// Проверяем комбинации от старшей к младшей
-	if combo, ok := GetStraightFlash(cards...); ok {
+	if combo, ok := GetFour(allCards...); ok {
+		rank := HandRank{7, combo[0].GetCardRank()}
+		return append(rank, getKickers(allCards, combo, 1)...)
+	}
+	if combo, ok := GetFullHouse(allCards...); ok {
+		return HandRank{6, combo[0].GetCardRank(), combo[3].GetCardRank()}
+	}
+	if flushCards, ok := GetFlush(allCards...); ok {
+		slices.SortFunc(flushCards, func(a, b Card) int {
+			return int(b.GetCardRank() - a.GetCardRank())
+		})
+		rank := HandRank{5}
+		for i := 0; i < 5 && i < len(flushCards); i++ {
+			rank = append(rank, flushCards[i].GetCardRank())
+		}
+		return rank
+	}
+	if combo, ok := GetStraight(allCards...); ok {
+		return HandRank{4, straightTopRank(combo)}
+	}
+	if combo, ok := GetThree(allCards...); ok {
+		rank := HandRank{3, combo[0].GetCardRank()}
+		return append(rank, getKickers(allCards, combo, 2)...)
+	}
+	if combo, ok := GetTwoPairs(allCards...); ok {
+		highPair := max(combo[0].GetCardRank(), combo[2].GetCardRank())
+		lowPair := min(combo[0].GetCardRank(), combo[2].GetCardRank())
+		rank := HandRank{2, highPair, lowPair}
+		return append(rank, getKickers(allCards, combo, 1)...)
+	}
+	if combo, ok := GetPair(allCards...); ok {
+		rank := HandRank{1, combo[0].GetCardRank()}
+		return append(rank, getKickers(allCards, combo, 3)...)
+	}
+
+	sorted := make([]Card, len(allCards))
+	copy(sorted, allCards)
+	slices.SortFunc(sorted, func(a, b Card) int {
+		return int(b.GetCardRank() - a.GetCardRank())
+	})
+	rank := HandRank{0}
+	for i := 0; i < 5 && i < len(sorted); i++ {
+		rank = append(rank, sorted[i].GetCardRank())
+	}
+	return rank
+}
+
+var categoryNames = [9]string{
+	"High Card", "Pair", "Two Pairs", "Three of a Kind",
+	"Straight", "Flush", "Full House", "Four of a Kind", "Straight Flush",
+}
+
+// EvaluateHand returns (combo cards, category, name) for backward compatibility
+func EvaluateHand(cards ...Card) ([]Card, int, string) {
+	if combo, ok := GetStraightFlush(cards...); ok {
 		return combo, 8, "Straight Flush"
 	}
 	if combo, ok := GetFour(cards...); ok {
@@ -301,84 +371,39 @@ func EvaluateHand(cards ...Card) ([]Card, int, string) {
 	if combo, ok := GetPair(cards...); ok {
 		return combo, 1, "Pair"
 	}
-
-	cards = []Card{slices.MaxFunc(cards[:2], func(a, b Card) int {
-		return int(a.GetCardRank() - b.GetCardRank())
-	})}
-	return cards, 0, "High Card"
+	sorted := make([]Card, len(cards))
+	copy(sorted, cards)
+	slices.SortFunc(sorted, func(a, b Card) int {
+		return int(b.GetCardRank() - a.GetCardRank())
+	})
+	return sorted[:5], 0, "High Card"
 }
 
-type evalResult struct {
-	playerId         int
-	holeCards        []Card
-	allCards         []Card
-	combinationCards []Card
+// ComputeWinners returns a bitmask: 1 = winner, 0 = loser. Supports split pots (ties).
+func ComputeWinners(playersCards [][]Card, publicCards []Card) []int {
+	numPlayers := len(playersCards)
+	result := make([]int, numPlayers)
 
-	category        int
-	combName        string
-	highestCardRank int16
-}
-
-func ComputeWinners(players_cards [][]Card, public_cards []Card) []int {
-	data := make([]*evalResult, len(players_cards))
-	folded := 0
-	for i, c := range players_cards {
-		data[i] = &evalResult{
-			playerId: i,
-		}
-		if c == nil {
-			// Player folded
-			data[i].category = -1
-			folded++
+	handRanks := make([]HandRank, numPlayers)
+	for i, cards := range playersCards {
+		if cards == nil {
+			handRanks[i] = HandRank{-1}
 		} else {
-			data[i].allCards = ConcatCards(c, public_cards)
-			data[i].holeCards = make([]Card, 2)
-			copy(data[i].holeCards, c)
-
-			eval_c, eval_categ, comb_name := EvaluateHand(data[i].allCards...)
-			data[i].combinationCards = eval_c
-			data[i].category = eval_categ
-			data[i].combName = comb_name
+			handRanks[i] = EvaluateHandRank(ConcatCards(cards, publicCards))
 		}
 	}
 
-	result := make([]int, len(players_cards))
-	if folded == len(players_cards)-1 {
-		// All folded except one
-		for i, ply := range data {
-			if ply.category == -1 {
-				result[i] = 0
-			} else {
-				result[i] = 1
-			}
-		}
-		return result
-	}
-
-	slices.SortFunc(data, func(a, b *evalResult) int {
-		return b.category - a.category
-	})
-
-	// Players with same category, check highest card to identify winners
-	potentialWinners := make([]*evalResult, 0)
-	for _, ply := range data {
-		if ply.category == data[0].category {
-			potentialWinners = append(potentialWinners, ply)
+	bestRank := HandRank{-1}
+	for _, rank := range handRanks {
+		if CompareHandRanks(rank, bestRank) > 0 {
+			bestRank = rank
 		}
 	}
-	// Only one winner, yay
-	if len(potentialWinners) == 1 {
-		winner := potentialWinners[0]
-		result[winner.playerId] = 1
-		return result
+
+	for i, rank := range handRanks {
+		if CompareHandRanks(rank, bestRank) == 0 {
+			result[i] = 1
+		}
 	}
-
-	// If same combination, check for combination rank
-	slices.SortFunc(potentialWinners, func(a, b *evalResult) int {
-		return int(b.combinationCards[0].GetCardRank() - a.combinationCards[0].GetCardRank())
-	})
-
-	result[potentialWinners[0].playerId] = 1
-
 	return result
 }

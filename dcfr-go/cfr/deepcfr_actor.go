@@ -5,7 +5,7 @@ import (
 )
 
 type CFRActor interface {
-	GetProbs(learnerId int, state *nolimitholdem.GameState) (nolimitholdem.Strategy, error)
+	GetProbs(state *nolimitholdem.GameState) (nolimitholdem.Strategy, error)
 }
 
 type DeepCFRActor struct {
@@ -20,7 +20,7 @@ func NewDeepCFRActor(cache *ActionsCache, executor *GRPCBatchExecutor) CFRActor 
 	}
 }
 
-func (h *DeepCFRActor) GetProbs(learnerId int, state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
+func (h *DeepCFRActor) GetProbs(state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
 	stateHash := state.Hash()
 	// All players use their own current strategy (from their own network)
 	strategy, ex := h.cache.GetRecord(int(state.CurrentPlayer), stateHash)
@@ -30,7 +30,7 @@ func (h *DeepCFRActor) GetProbs(learnerId int, state *nolimitholdem.GameState) (
 		if err != nil {
 			return nil, err
 		}
-		h.cache.AddRecord(-1, stateHash, state, strategy)
+		h.cache.AddRecord(int(state.CurrentPlayer), stateHash, state, strategy)
 	}
 	return strategy, nil
 }

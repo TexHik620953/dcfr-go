@@ -55,7 +55,7 @@ func (h *CFR) traverser(learnerId int, cfr_it int) ([]float32, error) {
 
 	currentPlayer := h.coreGame.CurrentPlayer()
 	state := h.coreGame.GetState(currentPlayer)
-	actionProbs, err := h.actor.GetProbs(learnerId, state)
+	actionProbs, err := h.actor.GetProbs(state)
 	if err != nil {
 		return nil, err
 	}

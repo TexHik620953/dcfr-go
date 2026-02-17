@@ -11,7 +11,7 @@ import (
 type ActorMock struct {
 }
 
-func (h *ActorMock) GetProbs(learnerId int, state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
+func (h *ActorMock) GetProbs(state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
 	return map[nolimitholdem.Action]float32{
 		nolimitholdem.ACTION_CHECK_CALL: 0.85,
 		nolimitholdem.ACTION_FOLD:       0.15,
