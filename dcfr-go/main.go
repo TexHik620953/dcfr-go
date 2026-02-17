@@ -44,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor, 3)
+	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
 
 	const CFR_ITERS = 1000
 	const TRAVERSE_ITERS = 100000

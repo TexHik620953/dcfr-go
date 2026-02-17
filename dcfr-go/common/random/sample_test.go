@@ -17,7 +17,10 @@ func TestSample(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	hist := map[int32]int{}
 	for range 10000 {
-		t := Sample(rng, values)
+		t, err := Sample(rng, values)
+		if err != nil {
+			panic(err)
+		}
 		v, ex := hist[t]
 		if !ex {
 			hist[t] = 1

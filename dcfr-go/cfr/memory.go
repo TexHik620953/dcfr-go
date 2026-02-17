@@ -90,7 +90,6 @@ type Sample struct {
 	State *nolimitholdem.GameState // Состояние игры
 	//Strategy  nolimitholdem.Strategy           // Стратегия
 	Regrets   map[nolimitholdem.Action]float32 // Сожаления для каждого действия
-	ReachProb float32                          // Вес примера (reach probability)
 	Iteration int                              // Итерация, на которой был собран пример
 }
 
@@ -187,7 +186,6 @@ func (m *MemoryBuffer) AddSample(
 	playerID int,
 	state *nolimitholdem.GameState,
 	regrets map[nolimitholdem.Action]float32,
-	reachProb float32,
 	iteration int,
 ) {
 	m.samp_mu.Lock()
@@ -198,7 +196,6 @@ func (m *MemoryBuffer) AddSample(
 		State: state.Clone(),
 		//Strategy:  strategy,
 		Regrets:   linq.CopyMap(regrets),
-		ReachProb: reachProb,
 		Iteration: iteration,
 	}
 

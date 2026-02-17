@@ -14,8 +14,7 @@ type ActorMock struct {
 func (h *ActorMock) GetProbs(learnerId int, state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
 	return map[nolimitholdem.Action]float32{
 		nolimitholdem.ACTION_CHECK_CALL: 0.85,
-		nolimitholdem.ACTION_ALL_IN:     0.1,
-		nolimitholdem.ACTION_FOLD:       0.05,
+		nolimitholdem.ACTION_FOLD:       0.15,
 	}, nil
 }
 
@@ -29,7 +28,6 @@ func (h *MemoryBufferMock) AddSample(
 	playerID int,
 	state *nolimitholdem.GameState,
 	regrets map[nolimitholdem.Action]float32,
-	reachProb float32,
 	iteration int,
 ) {
 

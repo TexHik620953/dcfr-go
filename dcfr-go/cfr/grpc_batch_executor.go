@@ -36,7 +36,7 @@ func sample2proto(sample *Sample) *infra.Sample {
 	return &infra.Sample{
 		State:     state2proto(sample.State),
 		Regrets:   *(*map[int32]float32)(unsafe.Pointer(&sample.Regrets)),
-		ReachProb: sample.ReachProb,
+		ReachProb: 0,
 		Iteration: int32(sample.Iteration),
 	}
 }
