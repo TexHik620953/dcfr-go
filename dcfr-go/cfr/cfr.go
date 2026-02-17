@@ -62,7 +62,8 @@ func (h *CFR) traverser(learnerId int, cfr_it int) ([]float32, error) {
 
 	// For opponent, use only one action
 	if currentPlayer != learnerId {
-		h.Memory.AddStrategySample(state, actionProbs, cfr_it)
+		// Uncomment later
+		// h.Memory.AddStrategySample(state, actionProbs, cfr_it)
 
 		_action, err := random.Sample(h.rng, actionProbs)
 		if err != nil {

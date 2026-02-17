@@ -4,7 +4,7 @@ services:
     hostname: pg
     image: postgres:15
     volumes:
-      - ./data/postgres-general:/var/lib/postgresql/data:z
+      - pg_volume:/var/lib/postgresql/data:z
     environment:
       POSTGRES_PASSWORD: HermanFuLLer
       POSTGRES_USER: postgres
@@ -40,3 +40,7 @@ services:
   # command: tensorboard --logdir=/data/logs --host=0.0.0.0
   # depends_on:
   #   - neural
+
+volumes:
+    pg_volume:
+        driver: local

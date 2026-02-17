@@ -4,19 +4,10 @@ import (
 	"dcfr-go/cfr"
 	"dcfr-go/nolimitholdem"
 	"fmt"
+	"math/rand"
 	"sync/atomic"
 	"testing"
 )
-
-type ActorMock struct {
-}
-
-func (h *ActorMock) GetProbs(state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
-	return map[nolimitholdem.Action]float32{
-		nolimitholdem.ACTION_CHECK_CALL: 0.85,
-		nolimitholdem.ACTION_FOLD:       0.15,
-	}, nil
-}
 
 type MemoryBufferMock struct {
 }
@@ -37,11 +28,12 @@ func TestTraverse(t *testing.T) {
 
 	game := nolimitholdem.NewGame(nolimitholdem.GameConfig{
 		RandomSeed:      int64(42),
-		ChipsForEach:    70,
+		ChipsForEach:    200,
 		NumPlayers:      3,
 		SmallBlindChips: 5,
 	})
-	actorMock := &ActorMock{}
+
+	actor := nolimitholdem.NewRandomActor(rand.New(rand.NewSource(42)))
 	memBuff := &MemoryBufferMock{}
 
 	stats := &cfr.CFRStats{
@@ -52,7 +44,7 @@ func TestTraverse(t *testing.T) {
 	traverser := cfr.New(
 		int64(42),
 		game,
-		actorMock,
+		actor,
 		memBuff,
 		stats,
 	)

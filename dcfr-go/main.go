@@ -5,6 +5,7 @@ import (
 	"dcfr-go/cfr"
 	"dcfr-go/common/bench"
 	"dcfr-go/nolimitholdem"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -25,18 +26,18 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(10_000_000, 0.2, "host=pg user=postgres password=HermanFuLLer dbname=postgres port=5432")
+	memoryBuffer, err := cfr.NewMemoryBuffer(5_000_000, 0.2, "host=127.0.0.1 user=postgres password=HermanFuLLer dbname=postgres port=5432")
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	err = memoryBuffer.Load()
 	if err != nil {
-		log.Printf("failed to load memory buffer: %v", err)
+		log.Printf("failed to load memory buffer: %v, creating new one", err)
 	}
 
-	actionsCache := cfr.NewActionsCache(10_000_000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("neural:1338", 15000, 50000)
+	actionsCache := cfr.NewActionsCache(5_000_000, 0.1)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor("127.0.0.1:1338", 10000, 20000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -47,8 +48,8 @@ func main() {
 	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
 
 	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 100000
-	const TRAIN_ITERS = 20000
+	const TRAVERSE_ITERS = 20000
+	const TRAIN_ITERS = 1000
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
@@ -116,15 +117,17 @@ func main() {
 				if err != nil {
 					log.Fatalf("failed to save networks: %v", err)
 				}
-				err = batchExecutor.Reset()
-				if err != nil {
-					log.Fatalf("failed to reset networks: %v", err)
-				}
-
+				// Не делаем ресет, чтобы файнтьюнить сеть а не обучать сначала
+				/*
+					err = batchExecutor.Reset()
+					if err != nil {
+						log.Fatalf("failed to reset networks: %v", err)
+					}
+				*/
 				// Train
 				elapsed = bench.MeasureExec(func() {
 					for player_id := range 3 {
-						for range TRAIN_ITERS {
+						for tIter := range TRAIN_ITERS {
 							batch := memoryBuffer.GetSamples(player_id, 5000)
 							if len(batch) == 0 {
 								continue
@@ -132,6 +135,9 @@ func main() {
 							_, err := batchExecutor.Train(player_id, batch)
 							if err != nil {
 								log.Fatalf("failed to train: %v", err)
+							}
+							if tIter%10 == 0 {
+								fmt.Printf("Train iterations: %d/%d\n", tIter, TRAIN_ITERS)
 							}
 						}
 					}

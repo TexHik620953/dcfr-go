@@ -14,8 +14,11 @@ func NewRandomActor(rand *rand.Rand) *RandomActor {
 	}
 	return h
 }
-func (h *RandomActor) GetAction(state *GameState) Action {
-	act := h.GetProbs(state)
+func (h *RandomActor) GetAction(state *GameState) (Action, error) {
+	act, err := h.GetProbs(state)
+	if err != nil {
+		return 0, err
+	}
 	maxV := float32(0)
 	maxAct := ACTION_CHECK_CALL
 	for a, v := range act {
@@ -24,10 +27,11 @@ func (h *RandomActor) GetAction(state *GameState) Action {
 			maxAct = a
 		}
 	}
-	return maxAct
+
+	return maxAct, nil
 }
 
-func (h *RandomActor) GetProbs(state *GameState) map[Action]float32 {
+func (h *RandomActor) GetProbs(state *GameState) (Strategy, error) {
 	r := make(map[Action]float32)
 	sum := float32(0)
 	for act, _ := range state.LegalActions {
@@ -38,5 +42,6 @@ func (h *RandomActor) GetProbs(state *GameState) map[Action]float32 {
 	for act, v := range r {
 		r[act] = v / sum
 	}
-	return r
+
+	return r, nil
 }

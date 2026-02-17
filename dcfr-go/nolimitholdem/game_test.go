@@ -7,11 +7,6 @@ import (
 )
 
 func BenchmarkPokerGameDetailed(b *testing.B) {
-	desiredN := 5000
-	if b.N < desiredN {
-		b.N = desiredN
-	}
-
 	config := GameConfig{
 		RandomSeed:      42,
 		ChipsForEach:    500,
@@ -32,7 +27,7 @@ func BenchmarkPokerGameDetailed(b *testing.B) {
 		stepsInHand := 0
 		for !game.IsOver() {
 			state := game.GetState(game.CurrentPlayer())
-			action := actor.GetAction(state)
+			action, _ := actor.GetAction(state)
 			game.Step(action)
 			stepsInHand++
 		}
@@ -64,7 +59,7 @@ func TestPokerGameRollback(t *testing.T) {
 
 	for !game.IsOver() {
 		state := game.GetState(game.CurrentPlayer())
-		action := actor.GetAction(state)
+		action, _ := actor.GetAction(state)
 		game.Step(action)
 	}
 
@@ -84,7 +79,7 @@ func TestPokerGameReset(t *testing.T) {
 
 	for !game.IsOver() {
 		state := game.GetState(game.CurrentPlayer())
-		action := actor.GetAction(state)
+		action, _ := actor.GetAction(state)
 		game.Step(action)
 	}
 

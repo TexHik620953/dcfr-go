@@ -46,7 +46,11 @@ class DeepCFRModel(nn.Module):
         self.action_head = nn.Linear(hidden_dim, 5)
 
         nn.init.xavier_uniform_(self.action_head.weight, gain=1/math.sqrt(hidden_dim))
+
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=3e-5)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            self.optimizer, T_0=5000, T_mult=2, eta_min=1e-5
+        )
 
     def forward(self, x):
         public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x

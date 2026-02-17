@@ -1,4 +1,6 @@
 #python -m grpc_tools.protoc -I./dcfr-go/proto/infra/ --python_out=./ --pyi_out=./ --grpc_python_out=./ ./dcfr-go/proto/infra/actor.proto
+#docker run -d -v /run/media/texhik/WORK/CODING/NeuralNetworks/dcfr-go/neural/tensorboard/:/app/runs/:ro -p 6006:6006 --name "my_tensorboard" schafo/tensorboard:latest --logdir=/app/runs --host 0.0.0.0
+
 print("Init")
 import grpc
 from concurrent import futures
@@ -83,6 +85,7 @@ def train_net(network, samples):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
     network.optimizer.step()
+    network.scheduler.step()
     if network.step % 50 == 0:
         tensorboard.add_histogram(f"{network.name}/logits", logits.detach().cpu(), network.step)
         tensorboard.add_histogram(f"{network.name}/argmax", logits.detach().argmax(dim=1).cpu(), network.step)
