@@ -23,7 +23,6 @@ type IMemoryBuffer interface {
 		playerID int,
 		state *nolimitholdem.GameState,
 		regrets map[nolimitholdem.Action]float32,
-		reachProb float32,
 		iteration int,
 	)
 }

@@ -4,7 +4,6 @@ import (
 	"dcfr-go/common/random"
 	"dcfr-go/nolimitholdem"
 	"fmt"
-	"math"
 	"math/rand"
 	"sync/atomic"
 )
@@ -38,8 +37,8 @@ func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory IMemoryBuf
 }
 
 func (h *CFR) TraverseTree(learnerId int, cfr_it int) ([]float32, error) {
-
-	payoffs, err := h.traverser(0, learnerId, cfr_it)
+	h.coreGame.Reset()
+	payoffs, err := h.traverser(learnerId, cfr_it)
 	if err != nil {
 		return nil, err
 	}
@@ -47,14 +46,12 @@ func (h *CFR) TraverseTree(learnerId int, cfr_it int) ([]float32, error) {
 	return payoffs, nil
 }
 
-func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]float32, error) {
+func (h *CFR) traverser(learnerId int, cfr_it int) ([]float32, error) {
 	h.stats.NodesVisited.Add(1)
 
 	if h.coreGame.IsOver() {
 		return h.coreGame.GetPayoffs(), nil
 	}
-	chanceNode := h.coreGame.GetCurrentNodeChance()
-	logReachProb += float32(math.Log(chanceNode))
 
 	currentPlayer := h.coreGame.CurrentPlayer()
 	state := h.coreGame.GetState(currentPlayer)
@@ -73,10 +70,8 @@ func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]floa
 		}
 		action := nolimitholdem.Action(_action)
 
-		actionReachProb := logReachProb + float32(math.Log(float64(actionProbs[action])))
-
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(actionReachProb, learnerId, cfr_it)
+		childPayoffs, err := h.traverser(learnerId, cfr_it)
 		if err != nil {
 			return nil, err
 		}
@@ -90,10 +85,8 @@ func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]floa
 
 	// Iterate over all possible actions
 	for action, actProb := range actionProbs {
-		actionReachProb := logReachProb + float32(math.Log(float64(actProb)))
-
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(actionReachProb, learnerId, cfr_it)
+		childPayoffs, err := h.traverser(learnerId, cfr_it)
 		if err != nil {
 			return nil, err
 		}
@@ -111,16 +104,9 @@ func (h *CFR) traverser(logReachProb float32, learnerId int, cfr_it int) ([]floa
 	// CFR HERE
 	regrets := make(nolimitholdem.Strategy)
 	for action, rawPayoff := range actionRawPayoffs {
-		regret := rawPayoff - totalPayoffs[learnerId]
-		// CFR+: только положительные сожаления
-		if regret > 0 {
-			regrets[action] = regret
-		}
+		regrets[action] = rawPayoff - totalPayoffs[learnerId]
 	}
-	if len(regrets) > 0 {
-		// Store state, regrets, cfr_iteration
-		h.Memory.AddSample(learnerId, state, regrets, logReachProb, cfr_it)
-	}
+	h.Memory.AddSample(learnerId, state, regrets, cfr_it)
 
 	return totalPayoffs, nil
 }

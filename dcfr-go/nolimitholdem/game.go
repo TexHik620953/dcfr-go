@@ -396,7 +396,7 @@ func (h *Game) GetCurrentNodeChance() float64 {
 		case STAGE_FLOP:
 			cardsInGame += 3
 		case STAGE_TURN:
-			cardsInGame += 3
+			cardsInGame += 4
 		case STAGE_RIVER:
 			cardsInGame += 5
 		}
