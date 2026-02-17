@@ -37,5 +37,6 @@ func (h *DeepCFRActor) GetProbs(state *nolimitholdem.GameState) (nolimitholdem.S
 
 func (h *DeepCFRActor) getStrategy(state *nolimitholdem.GameState) (nolimitholdem.Strategy, error) {
 	ch := h.executor.EnqueueGetStrategy(state)
-	return <-ch, nil
+	r := <-ch
+	return r, nil
 }

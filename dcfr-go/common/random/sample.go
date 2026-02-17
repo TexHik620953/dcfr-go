@@ -19,7 +19,7 @@ func Sample(rand *rand.Rand, probs map[int32]float32) (int32, error) {
 	}
 
 	// Проверка корректности распределения (опционально)
-	if sum < 0.99 || sum > 1.01 {
+	if sum < 0.95 || sum > 1.05 {
 		return 0, fmt.Errorf("invalid probs sum != 1")
 	}
 	r := rand.Float32()

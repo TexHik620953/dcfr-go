@@ -111,8 +111,9 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
         for unit_id in range(probs.shape[0]):
             r = actor_pb2.ProbsResponse()
             for i, prob in enumerate(probs[unit_id].tolist()):
-                if prob > 0:
                     r.action_probs[i] = prob
+            if len(r.action_probs) == 0:
+                print(r.action_probs)
             resp.responses.append(r)
         return resp
 

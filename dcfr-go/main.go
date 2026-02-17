@@ -37,7 +37,7 @@ func main() {
 	}
 
 	actionsCache := cfr.NewActionsCache(5_000_000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("127.0.0.1:1338", 10000, 20000)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor("127.0.0.1:1338", 2000, 5000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -128,7 +128,7 @@ func main() {
 				elapsed = bench.MeasureExec(func() {
 					for player_id := range 3 {
 						for tIter := range TRAIN_ITERS {
-							batch := memoryBuffer.GetSamples(player_id, 5000)
+							batch := memoryBuffer.GetSamples(player_id, 10000)
 							if len(batch) == 0 {
 								continue
 							}
@@ -136,8 +136,8 @@ func main() {
 							if err != nil {
 								log.Fatalf("failed to train: %v", err)
 							}
-							if tIter%10 == 0 {
-								fmt.Printf("Train iterations: %d/%d\n", tIter, TRAIN_ITERS)
+							if tIter%100 == 0 {
+								fmt.Printf("Training player %d: %d/%d\n", player_id, tIter, TRAIN_ITERS)
 							}
 						}
 					}

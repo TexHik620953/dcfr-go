@@ -29,7 +29,7 @@ func state2proto(state *nolimitholdem.GameState) *infra.GameState {
 	}
 }
 func proto2probs(probs *infra.ProbsResponse) nolimitholdem.Strategy {
-	return *(*nolimitholdem.Strategy)(unsafe.Pointer(&probs.ActionProbs))
+	return probs.ActionProbs
 }
 
 func sample2proto(sample *Sample) *infra.Sample {
