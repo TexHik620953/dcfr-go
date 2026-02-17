@@ -69,9 +69,10 @@ def train_net(network, samples):
                     current_player
     ))
 
+    # Linear CFR weighting: iteration t gets weight proportional to t
     it_weights = (iterations + 1) / (iterations.max() + 1)
-    regrets = F.relu(regrets)
-
+    
+    # MSE loss between predicted advantages and actual regrets (no clamping)
     loss = ((torch.square(logits - regrets)).sum(dim=1) * it_weights).mean()
 
     probs = F.softmax(logits, dim=1)
