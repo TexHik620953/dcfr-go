@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 import math
-
+import torch.nn.functional as F
 
 class MultiHeadAttentionBlock(nn.Module):
     """Один блок Self-Attention с LayerNorm и Residual connection"""
@@ -55,12 +55,15 @@ class PositionalEncoding(nn.Module):
 
 
 class DenseResidualBlock(nn.Module):
-    def __init__(self, input_dim, units):
-        super(DenseResidualBlock, self).__init__()
-        self.dense1 = nn.Linear(input_dim, units)
-        self.dense2 = nn.Linear(units, units)
-        self.leaky_relu = nn.LeakyReLU(0.2)
-        self.layer_norm = nn.LayerNorm(units)
+    def __init__(self, input_dim, units, dropout=0.1):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(input_dim)
+        self.linear1 = nn.Linear(input_dim, units)
+        self.norm2 = nn.LayerNorm(units)
+        self.linear2 = nn.Linear(units, units)
+        self.dropout = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(0.2)
 
         if input_dim != units:
             self.shortcut = nn.Linear(input_dim, units)
@@ -70,17 +73,18 @@ class DenseResidualBlock(nn.Module):
     def forward(self, x):
         shortcut = self.shortcut(x)
 
-        x = self.dense1(x)
-        x = self.leaky_relu(x)
+        # Pre-activation: norm -> activation -> linear
+        h = self.norm1(x)
+        h = self.activation(h)
+        h = self.linear1(h)
 
-        x = self.dense2(x)
-        x = self.leaky_relu(x)
+        h = self.norm2(h)
+        h = self.activation(h)
+        h = self.dropout(h)
+        h = self.linear2(h)
 
-        x = x + shortcut
-        x = self.leaky_relu(x)
-        x = self.layer_norm(x)
-
-        return x
+        # Сложение с shortcut
+        return h + shortcut
 
 
 class CardEmbedding(nn.Module):
@@ -97,6 +101,7 @@ class CardEmbedding(nn.Module):
         x = x.clamp(min=0)
 
         embs = self.card(x) + self.rank(x % 13) + self.suit(x // 13)
+        embs = F.layer_norm(embs, [embs.size(-1)])
         embs = embs * valid.unsqueeze(1)
         return embs.view(B, num_cards, -1)
 

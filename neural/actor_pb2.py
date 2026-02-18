@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x61\x63tor.proto\x12\x05infra\"\x07\n\x05\x45mpty\"\xa4\x02\n\tGameState\x12\x1b\n\x13\x61\x63tive_players_mask\x18\x01 \x03(\x05\x12\x14\n\x0cplayers_pots\x18\x02 \x03(\x05\x12\x0e\n\x06stakes\x18\x03 \x03(\x05\x12\x39\n\rlegal_actions\x18\x04 \x03(\x0b\x32\".infra.GameState.LegalActionsEntry\x12\x1f\n\x05stage\x18\x05 \x01(\x0e\x32\x10.infra.GameStage\x12\x16\n\x0e\x63urrent_player\x18\x06 \x01(\x05\x12\x14\n\x0cpublic_cards\x18\x07 \x03(\x05\x12\x15\n\rprivate_cards\x18\x08 \x03(\x05\x1a\x33\n\x11LegalActionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x08:\x02\x38\x01\"\xad\x01\n\x06Sample\x12\x1f\n\x05state\x18\x01 \x01(\x0b\x32\x10.infra.GameState\x12+\n\x07regrets\x18\x02 \x03(\x0b\x32\x1a.infra.Sample.RegretsEntry\x12\x12\n\nreach_prob\x18\x03 \x01(\x02\x12\x11\n\titeration\x18\x04 \x01(\x05\x1a.\n\x0cRegretsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x02:\x02\x38\x01\"3\n\x10GameStateRequest\x12\x1f\n\x05state\x18\x01 \x03(\x0b\x32\x10.infra.GameState\">\n\x13\x41\x63tionProbsResponse\x12\'\n\tresponses\x18\x01 \x03(\x0b\x32\x14.infra.ProbsResponse\"\x80\x01\n\rProbsResponse\x12;\n\x0c\x61\x63tion_probs\x18\x01 \x03(\x0b\x32%.infra.ProbsResponse.ActionProbsEntry\x1a\x32\n\x10\x41\x63tionProbsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x02:\x02\x38\x01\"F\n\x0cTrainRequest\x12\x16\n\x0e\x63urrent_player\x18\x01 \x01(\x05\x12\x1e\n\x07samples\x18\x02 \x03(\x0b\x32\r.infra.Sample\"1\n\x0fTrainAvgRequest\x12\x1e\n\x07samples\x18\x01 \x03(\x0b\x32\r.infra.Sample\"\x1d\n\rTrainResponse\x12\x0c\n\x04loss\x18\x01 \x01(\x02*E\n\tGameStage\x12\x0b\n\x07PREFLOP\x10\x00\x12\x08\n\x04\x46LOP\x10\x01\x12\x08\n\x04TURN\x10\x02\x12\t\n\x05RIVER\x10\x03\x12\x0c\n\x08SHOWDOWN\x10\x04*B\n\nActionType\x12\x08\n\x04\x46OLD\x10\x00\x12\t\n\x05\x43HECK\x10\x01\x12\x08\n\x04\x43\x41LL\x10\x02\x12\t\n\x05RAISE\x10\x03\x12\n\n\x06\x41LL_IN\x10\x04\x32\xcd\x01\n\x05\x41\x63tor\x12\x41\n\x08GetProbs\x12\x17.infra.GameStateRequest\x1a\x1a.infra.ActionProbsResponse\"\x00\x12\x34\n\x05Train\x12\x13.infra.TrainRequest\x1a\x14.infra.TrainResponse\"\x00\x12$\n\x04Save\x12\x0c.infra.Empty\x1a\x0c.infra.Empty\"\x00\x12%\n\x05Reset\x12\x0c.infra.Empty\x1a\x0c.infra.Empty\"\x00\x42\tZ\x07.;infrab\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0b\x61\x63tor.proto\x12\x05infra\"\x07\n\x05\x45mpty\"\xa4\x02\n\tGameState\x12\x1b\n\x13\x61\x63tive_players_mask\x18\x01 \x03(\x05\x12\x14\n\x0cplayers_pots\x18\x02 \x03(\x05\x12\x0e\n\x06stakes\x18\x03 \x03(\x05\x12\x39\n\rlegal_actions\x18\x04 \x03(\x0b\x32\".infra.GameState.LegalActionsEntry\x12\x1f\n\x05stage\x18\x05 \x01(\x0e\x32\x10.infra.GameStage\x12\x16\n\x0e\x63urrent_player\x18\x06 \x01(\x05\x12\x14\n\x0cpublic_cards\x18\x07 \x03(\x05\x12\x15\n\rprivate_cards\x18\x08 \x03(\x05\x1a\x33\n\x11LegalActionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x08:\x02\x38\x01\"\xd8\x01\n\x0bStateSample\x12$\n\ngame_state\x18\x01 \x01(\x0b\x32\x10.infra.GameState\x12\x30\n\x07regrets\x18\x02 \x03(\x0b\x32\x1f.infra.StateSample.RegretsEntry\x12\x11\n\titeration\x18\x03 \x01(\x05\x12\x16\n\x0elstm_context_h\x18\x04 \x03(\x02\x12\x16\n\x0elstm_context_c\x18\x05 \x03(\x02\x1a.\n\x0cRegretsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x02:\x02\x38\x01\"1\n\nGameSample\x12#\n\x07samples\x18\x01 \x03(\x0b\x32\x12.infra.StateSample\"`\n\x08\x43\x46RState\x12$\n\ngame_state\x18\x01 \x01(\x0b\x32\x10.infra.GameState\x12\x16\n\x0elstm_context_h\x18\x02 \x03(\x02\x12\x16\n\x0elstm_context_c\x18\x03 \x03(\x02\"5\n\x12\x41\x63tionProbsRequest\x12\x1f\n\x06states\x18\x01 \x03(\x0b\x32\x0f.infra.CFRState\">\n\x13\x41\x63tionProbsResponse\x12\'\n\tresponses\x18\x01 \x03(\x0b\x32\x14.infra.ProbsResponse\"\xb0\x01\n\rProbsResponse\x12;\n\x0c\x61\x63tion_probs\x18\x01 \x03(\x0b\x32%.infra.ProbsResponse.ActionProbsEntry\x12\x16\n\x0elstm_context_h\x18\x02 \x03(\x02\x12\x16\n\x0elstm_context_c\x18\x03 \x03(\x02\x1a\x32\n\x10\x41\x63tionProbsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12\r\n\x05value\x18\x02 \x01(\x02:\x02\x38\x01\"O\n\x0cTrainRequest\x12\x16\n\x0e\x63urrent_player\x18\x01 \x01(\x05\x12\'\n\x0cgame_samples\x18\x02 \x03(\x0b\x32\x11.infra.GameSample\"\x1d\n\rTrainResponse\x12\x0c\n\x04loss\x18\x01 \x01(\x02*E\n\tGameStage\x12\x0b\n\x07PREFLOP\x10\x00\x12\x08\n\x04\x46LOP\x10\x01\x12\x08\n\x04TURN\x10\x02\x12\t\n\x05RIVER\x10\x03\x12\x0c\n\x08SHOWDOWN\x10\x04\x32\xcf\x01\n\x05\x41\x63tor\x12\x43\n\x08GetProbs\x12\x19.infra.ActionProbsRequest\x1a\x1a.infra.ActionProbsResponse\"\x00\x12\x34\n\x05Train\x12\x13.infra.TrainRequest\x1a\x14.infra.TrainResponse\"\x00\x12$\n\x04Save\x12\x0c.infra.Empty\x1a\x0c.infra.Empty\"\x00\x12%\n\x05Reset\x12\x0c.infra.Empty\x1a\x0c.infra.Empty\"\x00\x42\tZ\x07.;infrab\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,38 +34,38 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._serialized_options = b'Z\007.;infra'
   _globals['_GAMESTATE_LEGALACTIONSENTRY']._loaded_options = None
   _globals['_GAMESTATE_LEGALACTIONSENTRY']._serialized_options = b'8\001'
-  _globals['_SAMPLE_REGRETSENTRY']._loaded_options = None
-  _globals['_SAMPLE_REGRETSENTRY']._serialized_options = b'8\001'
+  _globals['_STATESAMPLE_REGRETSENTRY']._loaded_options = None
+  _globals['_STATESAMPLE_REGRETSENTRY']._serialized_options = b'8\001'
   _globals['_PROBSRESPONSE_ACTIONPROBSENTRY']._loaded_options = None
   _globals['_PROBSRESPONSE_ACTIONPROBSENTRY']._serialized_options = b'8\001'
-  _globals['_GAMESTAGE']._serialized_start=904
-  _globals['_GAMESTAGE']._serialized_end=973
-  _globals['_ACTIONTYPE']._serialized_start=975
-  _globals['_ACTIONTYPE']._serialized_end=1041
+  _globals['_GAMESTAGE']._serialized_start=1104
+  _globals['_GAMESTAGE']._serialized_end=1173
   _globals['_EMPTY']._serialized_start=22
   _globals['_EMPTY']._serialized_end=29
   _globals['_GAMESTATE']._serialized_start=32
   _globals['_GAMESTATE']._serialized_end=324
   _globals['_GAMESTATE_LEGALACTIONSENTRY']._serialized_start=273
   _globals['_GAMESTATE_LEGALACTIONSENTRY']._serialized_end=324
-  _globals['_SAMPLE']._serialized_start=327
-  _globals['_SAMPLE']._serialized_end=500
-  _globals['_SAMPLE_REGRETSENTRY']._serialized_start=454
-  _globals['_SAMPLE_REGRETSENTRY']._serialized_end=500
-  _globals['_GAMESTATEREQUEST']._serialized_start=502
-  _globals['_GAMESTATEREQUEST']._serialized_end=553
-  _globals['_ACTIONPROBSRESPONSE']._serialized_start=555
-  _globals['_ACTIONPROBSRESPONSE']._serialized_end=617
-  _globals['_PROBSRESPONSE']._serialized_start=620
-  _globals['_PROBSRESPONSE']._serialized_end=748
-  _globals['_PROBSRESPONSE_ACTIONPROBSENTRY']._serialized_start=698
-  _globals['_PROBSRESPONSE_ACTIONPROBSENTRY']._serialized_end=748
-  _globals['_TRAINREQUEST']._serialized_start=750
-  _globals['_TRAINREQUEST']._serialized_end=820
-  _globals['_TRAINAVGREQUEST']._serialized_start=822
-  _globals['_TRAINAVGREQUEST']._serialized_end=871
-  _globals['_TRAINRESPONSE']._serialized_start=873
-  _globals['_TRAINRESPONSE']._serialized_end=902
-  _globals['_ACTOR']._serialized_start=1044
-  _globals['_ACTOR']._serialized_end=1249
+  _globals['_STATESAMPLE']._serialized_start=327
+  _globals['_STATESAMPLE']._serialized_end=543
+  _globals['_STATESAMPLE_REGRETSENTRY']._serialized_start=497
+  _globals['_STATESAMPLE_REGRETSENTRY']._serialized_end=543
+  _globals['_GAMESAMPLE']._serialized_start=545
+  _globals['_GAMESAMPLE']._serialized_end=594
+  _globals['_CFRSTATE']._serialized_start=596
+  _globals['_CFRSTATE']._serialized_end=692
+  _globals['_ACTIONPROBSREQUEST']._serialized_start=694
+  _globals['_ACTIONPROBSREQUEST']._serialized_end=747
+  _globals['_ACTIONPROBSRESPONSE']._serialized_start=749
+  _globals['_ACTIONPROBSRESPONSE']._serialized_end=811
+  _globals['_PROBSRESPONSE']._serialized_start=814
+  _globals['_PROBSRESPONSE']._serialized_end=990
+  _globals['_PROBSRESPONSE_ACTIONPROBSENTRY']._serialized_start=940
+  _globals['_PROBSRESPONSE_ACTIONPROBSENTRY']._serialized_end=990
+  _globals['_TRAINREQUEST']._serialized_start=992
+  _globals['_TRAINREQUEST']._serialized_end=1071
+  _globals['_TRAINRESPONSE']._serialized_start=1073
+  _globals['_TRAINRESPONSE']._serialized_end=1102
+  _globals['_ACTOR']._serialized_start=1176
+  _globals['_ACTOR']._serialized_end=1383
 # @@protoc_insertion_point(module_scope)

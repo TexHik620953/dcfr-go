@@ -1,7 +1,7 @@
 package nolimitholdem
 
 import (
-	"hash/fnv"
+	"hash"
 	"sort"
 )
 
@@ -16,14 +16,11 @@ type GameState struct {
 	PublicCards  []Card
 	PrivateCards []Card
 }
-type GameStateHash uint64
 
-func (gs *GameState) Hash() GameStateHash {
+func (gs *GameState) WriteHash(h hash.Hash64) {
 	if gs == nil {
-		return 0
+		return
 	}
-
-	h := fnv.New64a()
 
 	// Хэшируем PlayersPots
 	for _, pot := range gs.PlayersPots {
@@ -64,8 +61,6 @@ func (gs *GameState) Hash() GameStateHash {
 	for _, card := range gs.PrivateCards {
 		h.Write([]byte{byte(card >> 8), byte(card)})
 	}
-
-	return GameStateHash(h.Sum64())
 }
 
 func (h *GameState) Clone() *GameState {

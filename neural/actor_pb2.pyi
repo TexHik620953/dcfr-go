@@ -13,24 +13,11 @@ class GameStage(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     TURN: _ClassVar[GameStage]
     RIVER: _ClassVar[GameStage]
     SHOWDOWN: _ClassVar[GameStage]
-
-class ActionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    FOLD: _ClassVar[ActionType]
-    CHECK: _ClassVar[ActionType]
-    CALL: _ClassVar[ActionType]
-    RAISE: _ClassVar[ActionType]
-    ALL_IN: _ClassVar[ActionType]
 PREFLOP: GameStage
 FLOP: GameStage
 TURN: GameStage
 RIVER: GameStage
 SHOWDOWN: GameStage
-FOLD: ActionType
-CHECK: ActionType
-CALL: ActionType
-RAISE: ActionType
-ALL_IN: ActionType
 
 class Empty(_message.Message):
     __slots__ = ()
@@ -63,8 +50,8 @@ class GameState(_message.Message):
     private_cards: _containers.RepeatedScalarFieldContainer[int]
     def __init__(self, active_players_mask: _Optional[_Iterable[int]] = ..., players_pots: _Optional[_Iterable[int]] = ..., stakes: _Optional[_Iterable[int]] = ..., legal_actions: _Optional[_Mapping[int, bool]] = ..., stage: _Optional[_Union[GameStage, str]] = ..., current_player: _Optional[int] = ..., public_cards: _Optional[_Iterable[int]] = ..., private_cards: _Optional[_Iterable[int]] = ...) -> None: ...
 
-class Sample(_message.Message):
-    __slots__ = ("state", "regrets", "reach_prob", "iteration")
+class StateSample(_message.Message):
+    __slots__ = ("game_state", "regrets", "iteration", "lstm_context_h", "lstm_context_c")
     class RegretsEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -72,21 +59,39 @@ class Sample(_message.Message):
         key: int
         value: float
         def __init__(self, key: _Optional[int] = ..., value: _Optional[float] = ...) -> None: ...
-    STATE_FIELD_NUMBER: _ClassVar[int]
+    GAME_STATE_FIELD_NUMBER: _ClassVar[int]
     REGRETS_FIELD_NUMBER: _ClassVar[int]
-    REACH_PROB_FIELD_NUMBER: _ClassVar[int]
     ITERATION_FIELD_NUMBER: _ClassVar[int]
-    state: GameState
+    LSTM_CONTEXT_H_FIELD_NUMBER: _ClassVar[int]
+    LSTM_CONTEXT_C_FIELD_NUMBER: _ClassVar[int]
+    game_state: GameState
     regrets: _containers.ScalarMap[int, float]
-    reach_prob: float
     iteration: int
-    def __init__(self, state: _Optional[_Union[GameState, _Mapping]] = ..., regrets: _Optional[_Mapping[int, float]] = ..., reach_prob: _Optional[float] = ..., iteration: _Optional[int] = ...) -> None: ...
+    lstm_context_h: _containers.RepeatedScalarFieldContainer[float]
+    lstm_context_c: _containers.RepeatedScalarFieldContainer[float]
+    def __init__(self, game_state: _Optional[_Union[GameState, _Mapping]] = ..., regrets: _Optional[_Mapping[int, float]] = ..., iteration: _Optional[int] = ..., lstm_context_h: _Optional[_Iterable[float]] = ..., lstm_context_c: _Optional[_Iterable[float]] = ...) -> None: ...
 
-class GameStateRequest(_message.Message):
-    __slots__ = ("state",)
-    STATE_FIELD_NUMBER: _ClassVar[int]
-    state: _containers.RepeatedCompositeFieldContainer[GameState]
-    def __init__(self, state: _Optional[_Iterable[_Union[GameState, _Mapping]]] = ...) -> None: ...
+class GameSample(_message.Message):
+    __slots__ = ("samples",)
+    SAMPLES_FIELD_NUMBER: _ClassVar[int]
+    samples: _containers.RepeatedCompositeFieldContainer[StateSample]
+    def __init__(self, samples: _Optional[_Iterable[_Union[StateSample, _Mapping]]] = ...) -> None: ...
+
+class CFRState(_message.Message):
+    __slots__ = ("game_state", "lstm_context_h", "lstm_context_c")
+    GAME_STATE_FIELD_NUMBER: _ClassVar[int]
+    LSTM_CONTEXT_H_FIELD_NUMBER: _ClassVar[int]
+    LSTM_CONTEXT_C_FIELD_NUMBER: _ClassVar[int]
+    game_state: GameState
+    lstm_context_h: _containers.RepeatedScalarFieldContainer[float]
+    lstm_context_c: _containers.RepeatedScalarFieldContainer[float]
+    def __init__(self, game_state: _Optional[_Union[GameState, _Mapping]] = ..., lstm_context_h: _Optional[_Iterable[float]] = ..., lstm_context_c: _Optional[_Iterable[float]] = ...) -> None: ...
+
+class ActionProbsRequest(_message.Message):
+    __slots__ = ("states",)
+    STATES_FIELD_NUMBER: _ClassVar[int]
+    states: _containers.RepeatedCompositeFieldContainer[CFRState]
+    def __init__(self, states: _Optional[_Iterable[_Union[CFRState, _Mapping]]] = ...) -> None: ...
 
 class ActionProbsResponse(_message.Message):
     __slots__ = ("responses",)
@@ -95,7 +100,7 @@ class ActionProbsResponse(_message.Message):
     def __init__(self, responses: _Optional[_Iterable[_Union[ProbsResponse, _Mapping]]] = ...) -> None: ...
 
 class ProbsResponse(_message.Message):
-    __slots__ = ("action_probs",)
+    __slots__ = ("action_probs", "lstm_context_h", "lstm_context_c")
     class ActionProbsEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -104,22 +109,20 @@ class ProbsResponse(_message.Message):
         value: float
         def __init__(self, key: _Optional[int] = ..., value: _Optional[float] = ...) -> None: ...
     ACTION_PROBS_FIELD_NUMBER: _ClassVar[int]
+    LSTM_CONTEXT_H_FIELD_NUMBER: _ClassVar[int]
+    LSTM_CONTEXT_C_FIELD_NUMBER: _ClassVar[int]
     action_probs: _containers.ScalarMap[int, float]
-    def __init__(self, action_probs: _Optional[_Mapping[int, float]] = ...) -> None: ...
+    lstm_context_h: _containers.RepeatedScalarFieldContainer[float]
+    lstm_context_c: _containers.RepeatedScalarFieldContainer[float]
+    def __init__(self, action_probs: _Optional[_Mapping[int, float]] = ..., lstm_context_h: _Optional[_Iterable[float]] = ..., lstm_context_c: _Optional[_Iterable[float]] = ...) -> None: ...
 
 class TrainRequest(_message.Message):
-    __slots__ = ("current_player", "samples")
+    __slots__ = ("current_player", "game_samples")
     CURRENT_PLAYER_FIELD_NUMBER: _ClassVar[int]
-    SAMPLES_FIELD_NUMBER: _ClassVar[int]
+    GAME_SAMPLES_FIELD_NUMBER: _ClassVar[int]
     current_player: int
-    samples: _containers.RepeatedCompositeFieldContainer[Sample]
-    def __init__(self, current_player: _Optional[int] = ..., samples: _Optional[_Iterable[_Union[Sample, _Mapping]]] = ...) -> None: ...
-
-class TrainAvgRequest(_message.Message):
-    __slots__ = ("samples",)
-    SAMPLES_FIELD_NUMBER: _ClassVar[int]
-    samples: _containers.RepeatedCompositeFieldContainer[Sample]
-    def __init__(self, samples: _Optional[_Iterable[_Union[Sample, _Mapping]]] = ...) -> None: ...
+    game_samples: _containers.RepeatedCompositeFieldContainer[GameSample]
+    def __init__(self, current_player: _Optional[int] = ..., game_samples: _Optional[_Iterable[_Union[GameSample, _Mapping]]] = ...) -> None: ...
 
 class TrainResponse(_message.Message):
     __slots__ = ("loss",)

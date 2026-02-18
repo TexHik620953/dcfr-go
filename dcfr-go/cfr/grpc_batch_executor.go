@@ -9,41 +9,87 @@ import (
 	"log"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func state2proto(state *nolimitholdem.GameState) *infra.GameState {
-	return &infra.GameState{
-		ActivePlayersMask: state.ActivePlayersMask,
-		PlayersPots:       state.PlayersPots,
-		Stakes:            state.Stakes,
-		LegalActions:      *(*map[int32]bool)(unsafe.Pointer(&state.LegalActions)),
-		Stage:             infra.GameStage(state.Stage),
-		CurrentPlayer:     state.CurrentPlayer,
-		PublicCards:       *(*[]int32)(unsafe.Pointer(&state.PublicCards)),
-		PrivateCards:      *(*[]int32)(unsafe.Pointer(&state.PrivateCards)),
+func cfrstate2proto(state *CFRState) *infra.CFRState {
+	s := &infra.CFRState{
+		GameState:    gamestate2proto(state.GameState),
+		LstmContextH: state.ActorState.LstmH,
+		LstmContextC: state.ActorState.LstmC,
 	}
-}
-func proto2probs(probs *infra.ProbsResponse) nolimitholdem.Strategy {
-	return probs.ActionProbs
+	return s
 }
 
-func sample2proto(sample *Sample) *infra.Sample {
-	return &infra.Sample{
-		State:     state2proto(sample.State),
-		Regrets:   *(*map[int32]float32)(unsafe.Pointer(&sample.Regrets)),
-		ReachProb: 0,
-		Iteration: int32(sample.Iteration),
+func gamestate2proto(state *nolimitholdem.GameState) *infra.GameState {
+	// Копирование мапы LegalActions
+	legalActions := make(map[int32]bool)
+	for k, _ := range state.LegalActions {
+		legalActions[k] = true
 	}
+
+	// Копирование слайсов
+	publicCards := make([]int32, len(state.PublicCards))
+	for i, c := range state.PublicCards {
+		publicCards[i] = int32(c)
+	}
+
+	privateCards := make([]int32, len(state.PrivateCards))
+	for i, c := range state.PrivateCards {
+		privateCards[i] = int32(c)
+	}
+
+	// Создание структуры GameState
+	s := &infra.GameState{
+		ActivePlayersMask: state.ActivePlayersMask,
+		PlayersPots:       state.PlayersPots, // если это не ссылочный тип
+		Stakes:            state.Stakes,
+		LegalActions:      legalActions,
+		Stage:             infra.GameStage(state.Stage),
+		CurrentPlayer:     state.CurrentPlayer,
+		PublicCards:       publicCards,
+		PrivateCards:      privateCards,
+	}
+	return s
+}
+func proto2strat(probs *infra.ProbsResponse) *StrategyWithContext {
+	r := &StrategyWithContext{
+		Strategy: probs.ActionProbs,
+		LstmH:    make([]float32, len(probs.LstmContextH)),
+		LstmC:    make([]float32, len(probs.LstmContextC)),
+	}
+
+	copy(r.LstmH, probs.LstmContextH)
+	copy(r.LstmC, probs.LstmContextC)
+
+	return r
+}
+func sample2proto(gameSample *GameSample) *infra.GameSample {
+	s := &infra.GameSample{
+		Samples: make([]*infra.StateSample, len(gameSample.States)),
+	}
+	for i, sample := range gameSample.States {
+		smpl := &infra.StateSample{
+			GameState:    gamestate2proto(sample.GameState),
+			LstmContextH: sample.ActorState.LstmH,
+			LstmContextC: sample.ActorState.LstmC,
+			Regrets:      map[int32]float32{},
+			Iteration:    int32(sample.Iteration),
+		}
+		for k, v := range sample.Regrets {
+			smpl.Regrets[k] = v
+		}
+		s.Samples[i] = smpl
+	}
+	return s
 }
 
 type execution_unit struct {
-	rq     *infra.GameState
-	respCh chan nolimitholdem.Strategy
+	rq     *infra.CFRState
+	respCh chan *StrategyWithContext
 }
 
 type GRPCBatchExecutor struct {
@@ -70,7 +116,12 @@ func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int) (*
 		lastExec: time.Now(),
 	}
 	var err error
-	h.conn, err = grpc.NewClient(serverAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	h.conn, err = grpc.NewClient(serverAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallSendMsgSize(512*1024*1024), // 512MB для отправки
+			grpc.MaxCallRecvMsgSize(512*1024*1024), // 512MB для получения
+		))
 	if err != nil {
 		return nil, err
 	}
@@ -106,13 +157,13 @@ func (h *GRPCBatchExecutor) Reset() error {
 	return err
 }
 
-func (h *GRPCBatchExecutor) Train(learnerId int, samples []*Sample) (float32, error) {
+func (h *GRPCBatchExecutor) Train(learnerId int, samples []*GameSample) (float32, error) {
 	req := &infra.TrainRequest{
 		CurrentPlayer: int32(learnerId),
-		Samples:       make([]*infra.Sample, len(samples)),
+		GameSamples:   make([]*infra.GameSample, len(samples)),
 	}
 	for i, sample := range samples {
-		req.Samples[i] = sample2proto(sample)
+		req.GameSamples[i] = sample2proto(sample)
 	}
 
 	resp, err := h.actorClient.Train(context.Background(), req)
@@ -136,14 +187,14 @@ func (h *GRPCBatchExecutor) execute(playerId int) {
 		return
 	}
 
-	req := &infra.GameStateRequest{
-		State: make([]*infra.GameState, 0, targetSize),
+	req := &infra.ActionProbsRequest{
+		States: make([]*infra.CFRState, 0, targetSize),
 	}
 
 	keys := make([]string, 0, targetSize)
 	c := 0
 	rp.Foreach(func(k string, v execution_unit) bool {
-		req.State = append(req.State, v.rq)
+		req.States = append(req.States, v.rq)
 		keys = append(keys, k)
 		c++
 		return c < targetSize
@@ -160,32 +211,32 @@ func (h *GRPCBatchExecutor) execute(playerId int) {
 		if !ex {
 			log.Fatal("this should not happens")
 		}
-		unit.respCh <- proto2probs(v)
+		unit.respCh <- proto2strat(v)
 		close(unit.respCh)
 		rp.Delete(key)
 	}
 }
 
-func (h *GRPCBatchExecutor) EnqueueGetStrategy(state *nolimitholdem.GameState) chan nolimitholdem.Strategy {
+func (h *GRPCBatchExecutor) EnqueueGetStrategy(state *CFRState) chan *StrategyWithContext {
 	h.executionLock.Lock()
 	defer h.executionLock.Unlock()
 
-	rp := h.requestsPool.Get(int(state.CurrentPlayer))
+	rp := h.requestsPool.Get(int(state.GameState.CurrentPlayer))
 
 	req_id := uuid.NewString()
 	for rp.Exists(req_id) {
 		req_id = uuid.NewString()
 	}
 
-	ch := make(chan nolimitholdem.Strategy, 1)
+	ch := make(chan *StrategyWithContext, 1)
 
 	rp.Set(req_id, execution_unit{
-		rq:     state2proto(state),
+		rq:     cfrstate2proto(state),
 		respCh: ch,
 	})
 	if rp.Count() >= h.batchSize {
 		go func() {
-			h.execute(int(state.CurrentPlayer))
+			h.execute(int(state.GameState.CurrentPlayer))
 		}()
 	}
 	return ch

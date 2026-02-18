@@ -1,148 +1,82 @@
 package cfr
 
 import (
-	"database/sql/driver"
 	"dcfr-go/common/linq"
 	"dcfr-go/nolimitholdem"
 	"encoding/json"
-	"errors"
-	"log"
 	"math/rand"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/google/uuid"
 )
 
 type IMemoryBuffer interface {
 	AddStrategySample(state *nolimitholdem.GameState, strategy nolimitholdem.Strategy, iteration int)
 	AddSample(
 		playerID int,
+		gameID uuid.UUID,
 		state *nolimitholdem.GameState,
 		regrets map[nolimitholdem.Action]float32,
 		iteration int,
+		lstmH []float32,
+		lstmC []float32,
 	)
 }
 
-const STRATEGY_BATCH = 5000
-const WRITER_THREADS = 100
-
-type StrategySample struct {
-	ID        uint          `gorm:"primaryKey"`
-	State     GameStateJSON `gorm:"type:jsonb"`
-	Strategy  StrategyJSON  `gorm:"type:jsonb"`
-	Iteration int
+type ActorState struct {
+	LstmH []float32
+	LstmC []float32
 }
 
-// GameStateJSON - обёртка для сериализации GameState в JSON
-type GameStateJSON struct {
-	nolimitholdem.GameState
-}
-
-// StrategyJSON - обёртка для сериализации Strategy в JSON
-type StrategyJSON struct {
-	nolimitholdem.Strategy
-}
-
-// Value преобразует GameState в JSON для сохранения в БД
-func (gs *GameStateJSON) Value() (driver.Value, error) {
-	return json.Marshal(gs.GameState)
-}
-
-// Scan загружает GameState из JSON в поле БД
-func (gs *GameStateJSON) Scan(value interface{}) error {
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("неверный тип данных для GameState")
+func (h *ActorState) Clone() *ActorState {
+	a := &ActorState{
+		LstmH: make([]float32, len(h.LstmH)),
+		LstmC: make([]float32, len(h.LstmC)),
 	}
-
-	return json.Unmarshal(bytes, &gs.GameState)
+	copy(a.LstmC, h.LstmC)
+	copy(a.LstmH, h.LstmH)
+	return a
 }
 
-// Value преобразует Strategy в JSON для сохранения в БД
-func (s *StrategyJSON) Value() (driver.Value, error) {
-	if s.Strategy == nil {
-		return nil, nil
-	}
-	return json.Marshal(s.Strategy)
+type GameSample struct {
+	States []*StateSample
 }
 
-// Scan загружает Strategy из JSON в поле БД
-func (s *StrategyJSON) Scan(value interface{}) error {
-	if value == nil {
-		s.Strategy = nil
-		return nil
-	}
-
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("неверный тип данных для Strategy")
-	}
-
-	return json.Unmarshal(bytes, &s.Strategy)
+// GameSample хранит данные одного состояния для обучения
+type StateSample struct {
+	GameState  *nolimitholdem.GameState         // Состояние игры
+	ActorState *ActorState                      // Внутреннее состояние игрока
+	Regrets    map[nolimitholdem.Action]float32 // Сожаления для каждого действия
+	Iteration  int                              // Итерация, на которой был собран пример
 }
 
-// Sample хранит данные одного состояния для обучения
-type Sample struct {
-	State *nolimitholdem.GameState // Состояние игры
-	//Strategy  nolimitholdem.Strategy           // Стратегия
-	Regrets   map[nolimitholdem.Action]float32 // Сожаления для каждого действия
-	Iteration int                              // Итерация, на которой был собран пример
+type Game struct {
+	CreatedAt time.Time
+	Samples   []*StateSample
 }
 
 // MemoryBuffer кэширует данные для обучения нейросетей
 type MemoryBuffer struct {
 	samp_mu    sync.RWMutex
-	samples    map[int][]*Sample // samples[playerID] -> []*Sample
-	maxSamples int               // Максимальное число примеров на игрока
-	pruneRatio float32           // Доля старых примеров для удаления
-	rng        *rand.Rand        // Генератор случайных чисел
+	samples    map[int]map[uuid.UUID]*Game // samples[playerID] -> []*Sample
+	maxSamples int                         // Максимальное число примеров на игрока
+	pruneRatio float32                     // Доля старых примеров для удаления
+	rng        *rand.Rand                  // Генератор случайных чисел
 
-	strat_samples chan *StrategySample
-
-	db *gorm.DB
 }
 
 // NewMemoryBuffer создает буфер с настройками
-func NewMemoryBuffer(maxSamples int, pruneRatio float32, dsn string) (*MemoryBuffer, error) {
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.New(
-			log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
-			logger.Config{
-				SlowThreshold:             time.Second,  // Slow SQL threshold
-				LogLevel:                  logger.Error, // Log level
-				IgnoreRecordNotFoundError: true,         // Ignore ErrRecordNotFound error for logger
-				ParameterizedQueries:      true,         // Don't include params in the SQL log
-				Colorful:                  true,         // Disable color
-			},
-		),
-		SkipDefaultTransaction: true, // Улучшает производительность
-		PrepareStmt:            true, // Подготавливает выражения для повторного использования
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = db.AutoMigrate(&StrategySample{})
-	if err != nil {
-		return nil, err
-	}
-
+func NewMemoryBuffer(maxSamples int, pruneRatio float32) (*MemoryBuffer, error) {
 	m := &MemoryBuffer{
-		samples:       make(map[int][]*Sample),
-		maxSamples:    maxSamples,
-		pruneRatio:    pruneRatio,
-		rng:           rand.New(rand.NewSource(time.Now().UnixNano())),
-		strat_samples: make(chan *StrategySample, STRATEGY_BATCH),
-		db:            db,
+		samples:    make(map[int]map[uuid.UUID]*Game),
+		maxSamples: maxSamples,
+		pruneRatio: pruneRatio,
+		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
-	for range WRITER_THREADS {
-		go m.dbWriter()
-	}
 	return m, nil
 }
 
@@ -161,30 +95,17 @@ func (m *MemoryBuffer) Load() error {
 	return json.NewDecoder(f).Decode(&m.samples)
 }
 
-func (m *MemoryBuffer) dbWriter() {
-	buf := make([]*StrategySample, 0, STRATEGY_BATCH)
-	for data := range m.strat_samples {
-		buf = append(buf, data)
-		if len(buf) == STRATEGY_BATCH {
-			err := m.db.Create(buf).Error
-			if err != nil {
-				log.Panicf("Failed to insert strat samples: %v", err)
-			}
-			buf = buf[:0]
-		}
-	}
-}
-
 func (m *MemoryBuffer) Count(playerID int) int {
 	m.samp_mu.Lock()
 	defer m.samp_mu.Unlock()
 	return len(m.samples[playerID])
 }
 
-// AddSample добавляет новый пример для игрока
+// AddSample добавляет новый пример для игрока и раздачи
 func (m *MemoryBuffer) AddSample(
 	playerID int,
-	state *nolimitholdem.GameState,
+	gameID uuid.UUID,
+	state *CFRState,
 	regrets map[nolimitholdem.Action]float32,
 	iteration int,
 ) {
@@ -192,15 +113,30 @@ func (m *MemoryBuffer) AddSample(
 	defer m.samp_mu.Unlock()
 
 	// Создаем новый пример
-	sample := &Sample{
-		State: state.Clone(),
-		//Strategy:  strategy,
-		Regrets:   linq.CopyMap(regrets),
-		Iteration: iteration,
+	sample := &StateSample{
+		GameState:  state.GameState.Clone(),
+		ActorState: state.ActorState.Clone(),
+		Regrets:    linq.CopyMap(regrets),
+		Iteration:  iteration,
+	}
+	// Получаем баккит игрока
+	plyBucket, ex := m.samples[playerID]
+	if !ex {
+		plyBucket = make(map[uuid.UUID]*Game)
+		m.samples[playerID] = plyBucket
+	}
+	// Получаем баккит игры
+	game, ex := plyBucket[gameID]
+	if !ex {
+		game = &Game{
+			Samples:   make([]*StateSample, 0),
+			CreatedAt: time.Now(),
+		}
+		plyBucket[gameID] = game
 	}
 
 	// Добавляем в хранилище
-	m.samples[playerID] = append(m.samples[playerID], sample)
+	game.Samples = append(game.Samples, sample)
 
 	// Проверяем необходимость очистки
 	if len(m.samples[playerID]) > m.maxSamples {
@@ -208,45 +144,59 @@ func (m *MemoryBuffer) AddSample(
 	}
 }
 
-func (m *MemoryBuffer) AddStrategySample(
-	state *nolimitholdem.GameState,
-	strategy nolimitholdem.Strategy,
-	iteration int,
-) {
-	m.strat_samples <- &StrategySample{
-		State:     GameStateJSON{GameState: *state.Clone()},
-		Strategy:  StrategyJSON{Strategy: linq.CopyMap(strategy)},
-		Iteration: iteration,
-	}
-}
-
 // GetSamples возвращает батч примеров для обучения
-func (m *MemoryBuffer) GetSamples(playerID int, batchSize int) []*Sample {
+func (m *MemoryBuffer) GetSamples(playerID int, batchSize int) []*GameSample {
 	m.samp_mu.RLock()
 	defer m.samp_mu.RUnlock()
 
-	if len(m.samples[playerID]) == 0 {
-		return nil
+	playerBucket := m.samples[playerID]
+	samples := make([]*GameSample, 0, batchSize)
+
+	keys := make([]uuid.UUID, 0, len(playerBucket))
+	for u := range playerBucket {
+		keys = append(keys, u)
 	}
 
-	if batchSize > len(m.samples[playerID]) {
-		batchSize = len(m.samples[playerID])
+	collected := int(0)
+	for {
+		idx := m.rng.Int31n(int32(len(keys)))
+		key := keys[idx]
+
+		sample := playerBucket[key]
+		samples = append(samples, &GameSample{
+			States: sample.Samples,
+		})
+		collected += len(sample.Samples)
+		if collected >= batchSize {
+			break
+		}
 	}
 
-	// Выбираем случайные примеры
-	samples := make([]*Sample, 0, batchSize)
-	for i := 0; i < batchSize; i++ {
-		idx := m.rng.Int31n(int32(len(m.samples[playerID])))
-		samples = append(samples, m.samples[playerID][idx])
-	}
 	return samples
 }
 
 // pruneOldSamples удаляет старые примеры
 func (m *MemoryBuffer) pruneOldSamples(playerID int) {
-	samples := m.samples[playerID]
+	playerBucket := m.samples[playerID]
+
+	type gameEntry struct {
+		id        uuid.UUID
+		createdAt time.Time
+	}
+
+	entries := make([]gameEntry, 0, len(playerBucket))
+	for id, game := range playerBucket {
+		entries = append(entries, gameEntry{id, game.CreatedAt})
+	}
+
+	// Сортируем по времени создания (от старых к новым)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].createdAt.Before(entries[j].createdAt)
+	})
 
 	// Удаляем часть старых примеров
-	removeCount := int(float32(len(samples)) * m.pruneRatio)
-	m.samples[playerID] = samples[removeCount:]
+	removeCount := int(float32(len(entries)) * m.pruneRatio)
+	for i := 0; i < removeCount; i++ {
+		delete(playerBucket, entries[i].id)
+	}
 }

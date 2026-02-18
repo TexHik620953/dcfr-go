@@ -26,7 +26,7 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(5_000_000, 0.2, "host=127.0.0.1 user=postgres password=HermanFuLLer dbname=postgres port=5432")
+	memoryBuffer, err := cfr.NewMemoryBuffer(5_000_000, 0.2)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -48,8 +48,8 @@ func main() {
 	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
 
 	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 20000
-	const TRAIN_ITERS = 1000
+	const TRAVERSE_ITERS = 10000
+	const TRAIN_ITERS = 5
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
@@ -103,7 +103,7 @@ func main() {
 					}
 					wg.Wait()
 				})
-				log.Printf("[CFR_IT: %d] Finished traversing in %s. Memory size: [%d, %d, %d]",
+				log.Printf("[CFR_IT: %d] Finished traversing in %s. Games memory size: [%d, %d, %d]",
 					cfr_it,
 					elapsed,
 					memoryBuffer.Count(0),

@@ -13,29 +13,34 @@ message Empty {
 // Определение карты
 // Состояние игры
 message GameState {
-  repeated int32 active_players_mask = 1;   // Маска активных игроков
-  repeated int32 players_pots = 2;   // Банки игроков
-  repeated int32 stakes = 3;         // Текущие ставки игроков
+  repeated int32 active_players_mask = 1; // Маска активных игроков
+  repeated int32 players_pots = 2; // Банки игроков
+  repeated int32 stakes = 3; // Текущие ставки игроков
   map<int32, bool> legal_actions = 4; // Доступные действия (ключ - действие, значение - всегда true)
-  GameStage stage = 5;               // Текущая стадия игры
-  int32 current_player = 6;          // ID текущего игрока
+  GameStage stage = 5; // Текущая стадия игры
+  int32 current_player = 6; // ID текущего игрока
 
-  repeated int32 public_cards = 7;    // Общие карты на столе
-  repeated int32 private_cards = 8;   // Карты текущего игрока
+  repeated int32 public_cards = 7; // Общие карты на столе
+  repeated int32 private_cards = 8; // Карты текущего игрока
 }
 // Тренировочный сэмпл
-message Sample {
-  GameState state = 1;                   // Состояние игры
-  map<int32, float> regrets = 2;         // Сожаления для действий (Action -> float32)
-  float reach_prob = 3;                      // Вес примера (reach probability)
-  int32 iteration = 4;                   // Номер итерации
+message StateSample {
+  GameState game_state = 1; // Состояние игры
+  map<int32, float> regrets = 2; // Сожаления для действий (Action -> float32)
+  int32 iteration = 3; // Номер итерации
+
+  repeated float lstm_context_h = 4;
+  repeated float lstm_context_c = 5;
 }
 
+message GameSample {
+  repeated StateSample samples = 1;
+}
 
 
 // Стадии игры
 enum GameStage {
-  PREFLOP = 0;
+  PREFLOP = 0; 
   FLOP = 1;
   TURN = 2;
   RIVER = 3;
@@ -45,7 +50,7 @@ enum GameStage {
 // Интерфейс Actor
 service Actor {
   // Получить вероятности действий для игрока
-  rpc GetProbs (GameStateRequest) returns (ActionProbsResponse) {}
+  rpc GetProbs (ActionProbsRequest) returns (ActionProbsResponse) {}
 
   // Тренировать сеть
   rpc Train (TrainRequest) returns (TrainResponse) {}
@@ -58,8 +63,14 @@ service Actor {
 }
 
 // Запрос состояния игры
-message GameStateRequest {
-  repeated GameState state = 1;
+
+message CFRState {
+  GameState game_state = 1;
+  repeated float lstm_context_h = 2;
+  repeated float lstm_context_c = 3;  
+}
+message ActionProbsRequest {
+  repeated CFRState states = 1;
 }
 
 // Ответ с вероятностями действий
@@ -67,27 +78,18 @@ message ActionProbsResponse {
   repeated ProbsResponse responses = 1;
 }
 message ProbsResponse {
-  map<int32, float> action_probs = 1;  // Карта вероятностей действий
+  map<int32, float> action_probs = 1; // Карта вероятностей действий
+  repeated float lstm_context_h = 2;
+  repeated float lstm_context_c = 3;
 }
 
-// Дополнительные типы действий (можно расширять)
-enum ActionType {
-  FOLD = 0;
-  CHECK = 1;
-  CALL = 2;
-  RAISE = 3;
-  ALL_IN = 4;
-}
 
 // Запрос на тренировку
 message TrainRequest {
   int32 current_player = 1;
-  repeated Sample samples = 2;
+  repeated GameSample game_samples = 2;
 }
 
-message TrainAvgRequest {
-  repeated Sample samples = 1;
-}
 message TrainResponse {
   float loss = 1;
 }

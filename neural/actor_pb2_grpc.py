@@ -37,7 +37,7 @@ class ActorStub(object):
         """
         self.GetProbs = channel.unary_unary(
                 '/infra.Actor/GetProbs',
-                request_serializer=actor__pb2.GameStateRequest.SerializeToString,
+                request_serializer=actor__pb2.ActionProbsRequest.SerializeToString,
                 response_deserializer=actor__pb2.ActionProbsResponse.FromString,
                 _registered_method=True)
         self.Train = channel.unary_unary(
@@ -94,7 +94,7 @@ def add_ActorServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'GetProbs': grpc.unary_unary_rpc_method_handler(
                     servicer.GetProbs,
-                    request_deserializer=actor__pb2.GameStateRequest.FromString,
+                    request_deserializer=actor__pb2.ActionProbsRequest.FromString,
                     response_serializer=actor__pb2.ActionProbsResponse.SerializeToString,
             ),
             'Train': grpc.unary_unary_rpc_method_handler(
@@ -139,7 +139,7 @@ class Actor(object):
             request,
             target,
             '/infra.Actor/GetProbs',
-            actor__pb2.GameStateRequest.SerializeToString,
+            actor__pb2.ActionProbsRequest.SerializeToString,
             actor__pb2.ActionProbsResponse.FromString,
             options,
             channel_credentials,

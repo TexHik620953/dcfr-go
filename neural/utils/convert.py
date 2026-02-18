@@ -4,15 +4,15 @@ import numpy as np
 
 
 def convert_pbstate_to_tensor(states, device):
-    active_players_mask = np.array([s.active_players_mask for s in states])
-    player_pots = np.array([s.players_pots for s in states])
-    stakes = np.array([s.stakes for s in states])
-    actions_mask = [list(s.legal_actions) for s in states]
-    stage = np.array([s.stage for s in states])
-    current_player = np.array([s.current_player for s in states])
+    active_players_mask = np.array([s.game_state.active_players_mask for s in states])
+    player_pots = np.array([s.game_state.players_pots for s in states])
+    stakes = np.array([s.game_state.stakes for s in states])
+    actions_mask = [list(s.game_state.legal_actions) for s in states]
+    stage = np.array([s.game_state.stage for s in states])
+    current_player = np.array([s.game_state.current_player for s in states])
 
-    public_cards = [list(s.public_cards) for s in states]
-    private_cards = np.array([s.private_cards for s in states])
+    public_cards = [list(s.game_state.public_cards) for s in states]
+    private_cards = np.array([s.game_state.private_cards for s in states])
 
     for i, act in enumerate(actions_mask):
         r = np.zeros(5)
@@ -29,6 +29,11 @@ def convert_pbstate_to_tensor(states, device):
     player_pots = player_pots/bank
 
 
+    lstm_state_h = [s.lstm_context_h if len(s.lstm_context_h)>0 else None for s in states]
+    lstm_state_c = [s.lstm_context_c if len(s.lstm_context_c)>0 else None for s in states]
+
+
+
     # Формируем тензоры
     public_cards = torch.tensor(public_cards, device=device, dtype=torch.int)
     private_cards = torch.tensor(private_cards, device=device, dtype=torch.int)
@@ -38,6 +43,9 @@ def convert_pbstate_to_tensor(states, device):
     active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.float32)
     stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
     current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
+
+
+
 
     '''
             public_cards: (batch_size, 5) - индексы карт (padding = num_cards)
@@ -58,12 +66,11 @@ def convert_pbstate_to_tensor(states, device):
             active_players_mask,
             stage,
             current_player
-            ), actions_mask
+            ), actions_mask, (lstm_state_h, lstm_state_c)
 
 
 
 def convert_states_to_batch(samples, device):
-    reach_prob = np.array([s.reach_prob for s in samples])
     regrets = [s.regrets for s in samples]
     iterations = np.array([s.iteration for s in samples])
 
@@ -74,15 +81,15 @@ def convert_states_to_batch(samples, device):
         regrets[i] = r
     regrets = np.array(regrets)
 
-    active_players_mask = np.array([s.state.active_players_mask for s in samples])
-    player_pots = np.array([s.state.players_pots for s in samples])
-    stakes = np.array([s.state.stakes for s in samples])
-    actions_mask = [list(s.state.legal_actions) for s in samples]
-    stage = np.array([s.state.stage for s in samples])
-    current_player = np.array([s.state.current_player for s in samples])
+    active_players_mask = np.array([s.game_state.active_players_mask for s in samples])
+    player_pots = np.array([s.game_state.players_pots for s in samples])
+    stakes = np.array([s.game_state.stakes for s in samples])
+    actions_mask = [list(s.game_state.legal_actions) for s in samples]
+    stage = np.array([s.game_state.stage for s in samples])
+    current_player = np.array([s.game_state.current_player for s in samples])
 
-    public_cards = [list(s.state.public_cards) for s in samples]
-    private_cards = np.array([s.state.private_cards for s in samples])
+    public_cards = [list(s.game_state.public_cards) for s in samples]
+    private_cards = np.array([s.game_state.private_cards for s in samples])
 
 
     for i, act in enumerate(actions_mask):
@@ -111,7 +118,6 @@ def convert_states_to_batch(samples, device):
     current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
 
 
-    reach_prob = torch.tensor(reach_prob, device=device, dtype=torch.float32)
     iterations = torch.tensor(iterations, device=device, dtype=torch.float32)
     regrets = torch.tensor(regrets, device=device, dtype=torch.float32)
 
@@ -124,4 +130,4 @@ def convert_states_to_batch(samples, device):
             active_players_mask,
             stage,
             current_player
-            ), (reach_prob, iterations, regrets)
+            ), (iterations, regrets)
