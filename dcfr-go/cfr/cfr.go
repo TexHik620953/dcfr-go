@@ -10,6 +10,29 @@ import (
 	"github.com/google/uuid"
 )
 
+type ActorsContext struct {
+	States map[int]*ActorState
+}
+
+func (h *ActorsContext) Clone() *ActorsContext {
+	c := &ActorsContext{
+		States: make(map[int]*ActorState),
+	}
+	for k, v := range h.States {
+		s := &ActorState{
+			LstmH: make([]float32, len(v.LstmH)),
+			LstmC: make([]float32, len(v.LstmC)),
+		}
+		copy(s.LstmC, v.LstmC)
+		copy(s.LstmH, v.LstmH)
+		c.States[k] = s
+	}
+	return c
+}
+func (h *ActorsContext) At(player int) *ActorState {
+	return h.States[player]
+}
+
 type CFR struct {
 	coreGame *nolimitholdem.Game
 	actor    CFRActor
@@ -18,8 +41,6 @@ type CFR struct {
 	stats *CFRStats
 
 	rng *rand.Rand
-
-	playersContext map[int]*ActorState
 }
 type CFRStats struct {
 	NodesVisited   atomic.Int32
@@ -28,12 +49,11 @@ type CFRStats struct {
 
 func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuffer, stats *CFRStats) *CFR {
 	h := &CFR{
-		coreGame:       game,
-		actor:          actor,
-		Memory:         memory,
-		stats:          stats,
-		rng:            rand.New(rand.NewSource(seed)),
-		playersContext: map[int]*ActorState{},
+		coreGame: game,
+		actor:    actor,
+		Memory:   memory,
+		stats:    stats,
+		rng:      rand.New(rand.NewSource(seed)),
 	}
 
 	h.coreGame.Reset()
@@ -46,8 +66,9 @@ func (h *CFR) TraverseTree(learnerId int, iteration int) ([]float32, error) {
 	h.coreGame.Reset()
 
 	// Reset players contexts
+	playersContext := &ActorsContext{}
 	for i := range h.coreGame.PlayersCount() {
-		h.playersContext[i] = &ActorState{
+		playersContext.States[i] = &ActorState{
 			LstmH: nil,
 			LstmC: nil,
 		}
@@ -55,7 +76,7 @@ func (h *CFR) TraverseTree(learnerId int, iteration int) ([]float32, error) {
 
 	gameID := uuid.New()
 
-	payoffs, err := h.traverser(learnerId, iteration, gameID)
+	payoffs, err := h.traverser(learnerId, iteration, gameID, playersContext)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +84,8 @@ func (h *CFR) TraverseTree(learnerId int, iteration int) ([]float32, error) {
 	return payoffs, nil
 }
 
-func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID) ([]float32, error) {
+func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersState *ActorsContext) ([]float32, error) {
 	h.stats.NodesVisited.Add(1)
-
 	if h.coreGame.IsOver() {
 		return h.coreGame.GetPayoffs(), nil
 	}
@@ -74,7 +94,8 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID) ([]float32,
 	state := h.coreGame.GetState(currentPlayer)
 
 	// Get previous context for player
-	actorState := h.playersContext[currentPlayer]
+	actorState := playersState.At(currentPlayer)
+
 	actionContext, err := h.actor.GetProbs(&CFRState{
 		GameState:  state,
 		ActorState: actorState,
@@ -83,10 +104,8 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID) ([]float32,
 		return nil, err
 	}
 	// Store new context for player
-	h.playersContext[currentPlayer] = &ActorState{
-		LstmH: actionContext.LstmH,
-		LstmC: actionContext.LstmC,
-	}
+	actorState.LstmC = actionContext.LstmC
+	actorState.LstmH = actionContext.LstmH
 
 	// For opponent, use only one action
 	if currentPlayer != learnerId {
@@ -100,7 +119,7 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID) ([]float32,
 		action := nolimitholdem.Action(_action)
 
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID)
+		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone())
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +134,7 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID) ([]float32,
 	// Iterate over all possible actions
 	for action, actProb := range actionContext.Strategy {
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID)
+		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone())
 		if err != nil {
 			return nil, err
 		}
