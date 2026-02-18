@@ -66,7 +66,9 @@ func (h *CFR) TraverseTree(learnerId int, iteration int) ([]float32, error) {
 	h.coreGame.Reset()
 
 	// Reset players contexts
-	playersContext := &ActorsContext{}
+	playersContext := &ActorsContext{
+		States: map[int]*ActorState{},
+	}
 	for i := range h.coreGame.PlayersCount() {
 		playersContext.States[i] = &ActorState{
 			LstmH: nil,
