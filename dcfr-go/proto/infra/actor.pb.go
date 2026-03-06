@@ -336,6 +336,172 @@ func (x *GameSample) GetSamples() []*StateSample {
 	return nil
 }
 
+// Strategy sample for average strategy network
+type StrategySample struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GameState     *GameState             `protobuf:"bytes,1,opt,name=game_state,json=gameState,proto3" json:"game_state,omitempty"`
+	Strategy      map[int32]float32      `protobuf:"bytes,2,rep,name=strategy,proto3" json:"strategy,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"fixed32,2,opt,name=value"` // Action -> probability
+	Iteration     int32                  `protobuf:"varint,3,opt,name=iteration,proto3" json:"iteration,omitempty"`
+	LstmContextH  []float32              `protobuf:"fixed32,4,rep,packed,name=lstm_context_h,json=lstmContextH,proto3" json:"lstm_context_h,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StrategySample) Reset() {
+	*x = StrategySample{}
+	mi := &file_proto_infra_actor_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StrategySample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StrategySample) ProtoMessage() {}
+
+func (x *StrategySample) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_infra_actor_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StrategySample.ProtoReflect.Descriptor instead.
+func (*StrategySample) Descriptor() ([]byte, []int) {
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *StrategySample) GetGameState() *GameState {
+	if x != nil {
+		return x.GameState
+	}
+	return nil
+}
+
+func (x *StrategySample) GetStrategy() map[int32]float32 {
+	if x != nil {
+		return x.Strategy
+	}
+	return nil
+}
+
+func (x *StrategySample) GetIteration() int32 {
+	if x != nil {
+		return x.Iteration
+	}
+	return 0
+}
+
+func (x *StrategySample) GetLstmContextH() []float32 {
+	if x != nil {
+		return x.LstmContextH
+	}
+	return nil
+}
+
+type StrategyGameSample struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Samples       []*StrategySample      `protobuf:"bytes,1,rep,name=samples,proto3" json:"samples,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StrategyGameSample) Reset() {
+	*x = StrategyGameSample{}
+	mi := &file_proto_infra_actor_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StrategyGameSample) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StrategyGameSample) ProtoMessage() {}
+
+func (x *StrategyGameSample) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_infra_actor_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StrategyGameSample.ProtoReflect.Descriptor instead.
+func (*StrategyGameSample) Descriptor() ([]byte, []int) {
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *StrategyGameSample) GetSamples() []*StrategySample {
+	if x != nil {
+		return x.Samples
+	}
+	return nil
+}
+
+// Training request for average strategy network
+type TrainAvgStrategyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CurrentPlayer int32                  `protobuf:"varint,1,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
+	GameSamples   []*StrategyGameSample  `protobuf:"bytes,2,rep,name=game_samples,json=gameSamples,proto3" json:"game_samples,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrainAvgStrategyRequest) Reset() {
+	*x = TrainAvgStrategyRequest{}
+	mi := &file_proto_infra_actor_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrainAvgStrategyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrainAvgStrategyRequest) ProtoMessage() {}
+
+func (x *TrainAvgStrategyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_infra_actor_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TrainAvgStrategyRequest.ProtoReflect.Descriptor instead.
+func (*TrainAvgStrategyRequest) Descriptor() ([]byte, []int) {
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TrainAvgStrategyRequest) GetCurrentPlayer() int32 {
+	if x != nil {
+		return x.CurrentPlayer
+	}
+	return 0
+}
+
+func (x *TrainAvgStrategyRequest) GetGameSamples() []*StrategyGameSample {
+	if x != nil {
+		return x.GameSamples
+	}
+	return nil
+}
+
 type CFRState struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	GameState     *GameState             `protobuf:"bytes,1,opt,name=game_state,json=gameState,proto3" json:"game_state,omitempty"`
@@ -347,7 +513,7 @@ type CFRState struct {
 
 func (x *CFRState) Reset() {
 	*x = CFRState{}
-	mi := &file_proto_infra_actor_proto_msgTypes[4]
+	mi := &file_proto_infra_actor_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -359,7 +525,7 @@ func (x *CFRState) String() string {
 func (*CFRState) ProtoMessage() {}
 
 func (x *CFRState) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_infra_actor_proto_msgTypes[4]
+	mi := &file_proto_infra_actor_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,7 +538,7 @@ func (x *CFRState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CFRState.ProtoReflect.Descriptor instead.
 func (*CFRState) Descriptor() ([]byte, []int) {
-	return file_proto_infra_actor_proto_rawDescGZIP(), []int{4}
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CFRState) GetGameState() *GameState {
@@ -405,7 +571,7 @@ type ActionProbsRequest struct {
 
 func (x *ActionProbsRequest) Reset() {
 	*x = ActionProbsRequest{}
-	mi := &file_proto_infra_actor_proto_msgTypes[5]
+	mi := &file_proto_infra_actor_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -417,7 +583,7 @@ func (x *ActionProbsRequest) String() string {
 func (*ActionProbsRequest) ProtoMessage() {}
 
 func (x *ActionProbsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_infra_actor_proto_msgTypes[5]
+	mi := &file_proto_infra_actor_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -430,7 +596,7 @@ func (x *ActionProbsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActionProbsRequest.ProtoReflect.Descriptor instead.
 func (*ActionProbsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_infra_actor_proto_rawDescGZIP(), []int{5}
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ActionProbsRequest) GetStates() []*CFRState {
@@ -450,7 +616,7 @@ type ActionProbsResponse struct {
 
 func (x *ActionProbsResponse) Reset() {
 	*x = ActionProbsResponse{}
-	mi := &file_proto_infra_actor_proto_msgTypes[6]
+	mi := &file_proto_infra_actor_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +628,7 @@ func (x *ActionProbsResponse) String() string {
 func (*ActionProbsResponse) ProtoMessage() {}
 
 func (x *ActionProbsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_infra_actor_proto_msgTypes[6]
+	mi := &file_proto_infra_actor_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +641,7 @@ func (x *ActionProbsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ActionProbsResponse.ProtoReflect.Descriptor instead.
 func (*ActionProbsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_infra_actor_proto_rawDescGZIP(), []int{6}
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ActionProbsResponse) GetResponses() []*ProbsResponse {
@@ -496,7 +662,7 @@ type ProbsResponse struct {
 
 func (x *ProbsResponse) Reset() {
 	*x = ProbsResponse{}
-	mi := &file_proto_infra_actor_proto_msgTypes[7]
+	mi := &file_proto_infra_actor_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -508,7 +674,7 @@ func (x *ProbsResponse) String() string {
 func (*ProbsResponse) ProtoMessage() {}
 
 func (x *ProbsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_infra_actor_proto_msgTypes[7]
+	mi := &file_proto_infra_actor_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -521,7 +687,7 @@ func (x *ProbsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbsResponse.ProtoReflect.Descriptor instead.
 func (*ProbsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_infra_actor_proto_rawDescGZIP(), []int{7}
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ProbsResponse) GetActionProbs() map[int32]float32 {
@@ -556,7 +722,7 @@ type TrainRequest struct {
 
 func (x *TrainRequest) Reset() {
 	*x = TrainRequest{}
-	mi := &file_proto_infra_actor_proto_msgTypes[8]
+	mi := &file_proto_infra_actor_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +734,7 @@ func (x *TrainRequest) String() string {
 func (*TrainRequest) ProtoMessage() {}
 
 func (x *TrainRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_infra_actor_proto_msgTypes[8]
+	mi := &file_proto_infra_actor_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +747,7 @@ func (x *TrainRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrainRequest.ProtoReflect.Descriptor instead.
 func (*TrainRequest) Descriptor() ([]byte, []int) {
-	return file_proto_infra_actor_proto_rawDescGZIP(), []int{8}
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *TrainRequest) GetCurrentPlayer() int32 {
@@ -607,7 +773,7 @@ type TrainResponse struct {
 
 func (x *TrainResponse) Reset() {
 	*x = TrainResponse{}
-	mi := &file_proto_infra_actor_proto_msgTypes[9]
+	mi := &file_proto_infra_actor_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -619,7 +785,7 @@ func (x *TrainResponse) String() string {
 func (*TrainResponse) ProtoMessage() {}
 
 func (x *TrainResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_infra_actor_proto_msgTypes[9]
+	mi := &file_proto_infra_actor_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -632,7 +798,7 @@ func (x *TrainResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrainResponse.ProtoReflect.Descriptor instead.
 func (*TrainResponse) Descriptor() ([]byte, []int) {
-	return file_proto_infra_actor_proto_rawDescGZIP(), []int{9}
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TrainResponse) GetLoss() float32 {
@@ -672,7 +838,21 @@ const file_proto_infra_actor_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x02R\x05value:\x028\x01\":\n" +
 	"\n" +
 	"GameSample\x12,\n" +
-	"\asamples\x18\x01 \x03(\v2\x12.infra.StateSampleR\asamples\"\x87\x01\n" +
+	"\asamples\x18\x01 \x03(\v2\x12.infra.StateSampleR\asamples\"\x83\x02\n" +
+	"\x0eStrategySample\x12/\n" +
+	"\n" +
+	"game_state\x18\x01 \x01(\v2\x10.infra.GameStateR\tgameState\x12?\n" +
+	"\bstrategy\x18\x02 \x03(\v2#.infra.StrategySample.StrategyEntryR\bstrategy\x12\x1c\n" +
+	"\titeration\x18\x03 \x01(\x05R\titeration\x12$\n" +
+	"\x0elstm_context_h\x18\x04 \x03(\x02R\flstmContextH\x1a;\n" +
+	"\rStrategyEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\x05R\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x02R\x05value:\x028\x01\"E\n" +
+	"\x12StrategyGameSample\x12/\n" +
+	"\asamples\x18\x01 \x03(\v2\x15.infra.StrategySampleR\asamples\"~\n" +
+	"\x17TrainAvgStrategyRequest\x12%\n" +
+	"\x0ecurrent_player\x18\x01 \x01(\x05R\rcurrentPlayer\x12<\n" +
+	"\fgame_samples\x18\x02 \x03(\v2\x19.infra.StrategyGameSampleR\vgameSamples\"\x87\x01\n" +
 	"\bCFRState\x12/\n" +
 	"\n" +
 	"game_state\x18\x01 \x01(\v2\x10.infra.GameStateR\tgameState\x12$\n" +
@@ -699,12 +879,13 @@ const file_proto_infra_actor_proto_rawDesc = "" +
 	"\x04FLOP\x10\x01\x12\b\n" +
 	"\x04TURN\x10\x02\x12\t\n" +
 	"\x05RIVER\x10\x03\x12\f\n" +
-	"\bSHOWDOWN\x10\x042\xcf\x01\n" +
+	"\bSHOWDOWN\x10\x042\x9b\x02\n" +
 	"\x05Actor\x12C\n" +
 	"\bGetProbs\x12\x19.infra.ActionProbsRequest\x1a\x1a.infra.ActionProbsResponse\"\x00\x124\n" +
 	"\x05Train\x12\x13.infra.TrainRequest\x1a\x14.infra.TrainResponse\"\x00\x12$\n" +
 	"\x04Save\x12\f.infra.Empty\x1a\f.infra.Empty\"\x00\x12%\n" +
-	"\x05Reset\x12\f.infra.Empty\x1a\f.infra.Empty\"\x00B\tZ\a.;infrab\x06proto3"
+	"\x05Reset\x12\f.infra.Empty\x1a\f.infra.Empty\"\x00\x12J\n" +
+	"\x10TrainAvgStrategy\x12\x1e.infra.TrainAvgStrategyRequest\x1a\x14.infra.TrainResponse\"\x00B\tZ\a.;infrab\x06proto3"
 
 var (
 	file_proto_infra_actor_proto_rawDescOnce sync.Once
@@ -719,47 +900,57 @@ func file_proto_infra_actor_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_infra_actor_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_infra_actor_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_infra_actor_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_proto_infra_actor_proto_goTypes = []any{
-	(GameStage)(0),              // 0: infra.GameStage
-	(*Empty)(nil),               // 1: infra.Empty
-	(*GameState)(nil),           // 2: infra.GameState
-	(*StateSample)(nil),         // 3: infra.StateSample
-	(*GameSample)(nil),          // 4: infra.GameSample
-	(*CFRState)(nil),            // 5: infra.CFRState
-	(*ActionProbsRequest)(nil),  // 6: infra.ActionProbsRequest
-	(*ActionProbsResponse)(nil), // 7: infra.ActionProbsResponse
-	(*ProbsResponse)(nil),       // 8: infra.ProbsResponse
-	(*TrainRequest)(nil),        // 9: infra.TrainRequest
-	(*TrainResponse)(nil),       // 10: infra.TrainResponse
-	nil,                         // 11: infra.GameState.LegalActionsEntry
-	nil,                         // 12: infra.StateSample.RegretsEntry
-	nil,                         // 13: infra.ProbsResponse.ActionProbsEntry
+	(GameStage)(0),                  // 0: infra.GameStage
+	(*Empty)(nil),                   // 1: infra.Empty
+	(*GameState)(nil),               // 2: infra.GameState
+	(*StateSample)(nil),             // 3: infra.StateSample
+	(*GameSample)(nil),              // 4: infra.GameSample
+	(*StrategySample)(nil),          // 5: infra.StrategySample
+	(*StrategyGameSample)(nil),      // 6: infra.StrategyGameSample
+	(*TrainAvgStrategyRequest)(nil), // 7: infra.TrainAvgStrategyRequest
+	(*CFRState)(nil),                // 8: infra.CFRState
+	(*ActionProbsRequest)(nil),      // 9: infra.ActionProbsRequest
+	(*ActionProbsResponse)(nil),     // 10: infra.ActionProbsResponse
+	(*ProbsResponse)(nil),           // 11: infra.ProbsResponse
+	(*TrainRequest)(nil),            // 12: infra.TrainRequest
+	(*TrainResponse)(nil),           // 13: infra.TrainResponse
+	nil,                             // 14: infra.GameState.LegalActionsEntry
+	nil,                             // 15: infra.StateSample.RegretsEntry
+	nil,                             // 16: infra.StrategySample.StrategyEntry
+	nil,                             // 17: infra.ProbsResponse.ActionProbsEntry
 }
 var file_proto_infra_actor_proto_depIdxs = []int32{
-	11, // 0: infra.GameState.legal_actions:type_name -> infra.GameState.LegalActionsEntry
+	14, // 0: infra.GameState.legal_actions:type_name -> infra.GameState.LegalActionsEntry
 	0,  // 1: infra.GameState.stage:type_name -> infra.GameStage
 	2,  // 2: infra.StateSample.game_state:type_name -> infra.GameState
-	12, // 3: infra.StateSample.regrets:type_name -> infra.StateSample.RegretsEntry
+	15, // 3: infra.StateSample.regrets:type_name -> infra.StateSample.RegretsEntry
 	3,  // 4: infra.GameSample.samples:type_name -> infra.StateSample
-	2,  // 5: infra.CFRState.game_state:type_name -> infra.GameState
-	5,  // 6: infra.ActionProbsRequest.states:type_name -> infra.CFRState
-	8,  // 7: infra.ActionProbsResponse.responses:type_name -> infra.ProbsResponse
-	13, // 8: infra.ProbsResponse.action_probs:type_name -> infra.ProbsResponse.ActionProbsEntry
-	4,  // 9: infra.TrainRequest.game_samples:type_name -> infra.GameSample
-	6,  // 10: infra.Actor.GetProbs:input_type -> infra.ActionProbsRequest
-	9,  // 11: infra.Actor.Train:input_type -> infra.TrainRequest
-	1,  // 12: infra.Actor.Save:input_type -> infra.Empty
-	1,  // 13: infra.Actor.Reset:input_type -> infra.Empty
-	7,  // 14: infra.Actor.GetProbs:output_type -> infra.ActionProbsResponse
-	10, // 15: infra.Actor.Train:output_type -> infra.TrainResponse
-	1,  // 16: infra.Actor.Save:output_type -> infra.Empty
-	1,  // 17: infra.Actor.Reset:output_type -> infra.Empty
-	14, // [14:18] is the sub-list for method output_type
-	10, // [10:14] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	2,  // 5: infra.StrategySample.game_state:type_name -> infra.GameState
+	16, // 6: infra.StrategySample.strategy:type_name -> infra.StrategySample.StrategyEntry
+	5,  // 7: infra.StrategyGameSample.samples:type_name -> infra.StrategySample
+	6,  // 8: infra.TrainAvgStrategyRequest.game_samples:type_name -> infra.StrategyGameSample
+	2,  // 9: infra.CFRState.game_state:type_name -> infra.GameState
+	8,  // 10: infra.ActionProbsRequest.states:type_name -> infra.CFRState
+	11, // 11: infra.ActionProbsResponse.responses:type_name -> infra.ProbsResponse
+	17, // 12: infra.ProbsResponse.action_probs:type_name -> infra.ProbsResponse.ActionProbsEntry
+	4,  // 13: infra.TrainRequest.game_samples:type_name -> infra.GameSample
+	9,  // 14: infra.Actor.GetProbs:input_type -> infra.ActionProbsRequest
+	12, // 15: infra.Actor.Train:input_type -> infra.TrainRequest
+	1,  // 16: infra.Actor.Save:input_type -> infra.Empty
+	1,  // 17: infra.Actor.Reset:input_type -> infra.Empty
+	7,  // 18: infra.Actor.TrainAvgStrategy:input_type -> infra.TrainAvgStrategyRequest
+	10, // 19: infra.Actor.GetProbs:output_type -> infra.ActionProbsResponse
+	13, // 20: infra.Actor.Train:output_type -> infra.TrainResponse
+	1,  // 21: infra.Actor.Save:output_type -> infra.Empty
+	1,  // 22: infra.Actor.Reset:output_type -> infra.Empty
+	13, // 23: infra.Actor.TrainAvgStrategy:output_type -> infra.TrainResponse
+	19, // [19:24] is the sub-list for method output_type
+	14, // [14:19] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_proto_infra_actor_proto_init() }
@@ -773,7 +964,7 @@ func file_proto_infra_actor_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_infra_actor_proto_rawDesc), len(file_proto_infra_actor_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -77,6 +77,39 @@ class GameSample(_message.Message):
     samples: _containers.RepeatedCompositeFieldContainer[StateSample]
     def __init__(self, samples: _Optional[_Iterable[_Union[StateSample, _Mapping]]] = ...) -> None: ...
 
+class StrategySample(_message.Message):
+    __slots__ = ("game_state", "strategy", "iteration", "lstm_context_h")
+    class StrategyEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: int
+        value: float
+        def __init__(self, key: _Optional[int] = ..., value: _Optional[float] = ...) -> None: ...
+    GAME_STATE_FIELD_NUMBER: _ClassVar[int]
+    STRATEGY_FIELD_NUMBER: _ClassVar[int]
+    ITERATION_FIELD_NUMBER: _ClassVar[int]
+    LSTM_CONTEXT_H_FIELD_NUMBER: _ClassVar[int]
+    game_state: GameState
+    strategy: _containers.ScalarMap[int, float]
+    iteration: int
+    lstm_context_h: _containers.RepeatedScalarFieldContainer[float]
+    def __init__(self, game_state: _Optional[_Union[GameState, _Mapping]] = ..., strategy: _Optional[_Mapping[int, float]] = ..., iteration: _Optional[int] = ..., lstm_context_h: _Optional[_Iterable[float]] = ...) -> None: ...
+
+class StrategyGameSample(_message.Message):
+    __slots__ = ("samples",)
+    SAMPLES_FIELD_NUMBER: _ClassVar[int]
+    samples: _containers.RepeatedCompositeFieldContainer[StrategySample]
+    def __init__(self, samples: _Optional[_Iterable[_Union[StrategySample, _Mapping]]] = ...) -> None: ...
+
+class TrainAvgStrategyRequest(_message.Message):
+    __slots__ = ("current_player", "game_samples")
+    CURRENT_PLAYER_FIELD_NUMBER: _ClassVar[int]
+    GAME_SAMPLES_FIELD_NUMBER: _ClassVar[int]
+    current_player: int
+    game_samples: _containers.RepeatedCompositeFieldContainer[StrategyGameSample]
+    def __init__(self, current_player: _Optional[int] = ..., game_samples: _Optional[_Iterable[_Union[StrategyGameSample, _Mapping]]] = ...) -> None: ...
+
 class CFRState(_message.Message):
     __slots__ = ("game_state", "lstm_context_h", "lstm_context_c")
     GAME_STATE_FIELD_NUMBER: _ClassVar[int]

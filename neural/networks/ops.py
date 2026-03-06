@@ -51,7 +51,7 @@ class PositionalEncoding(nn.Module):
         Returns:
             Тензор с добавленными позиционными кодировками
         """
-        return x + self.pe[:x.size(1)]
+        return x + self.pe[:, :x.size(1)]
 
 
 class DenseResidualBlock(nn.Module):

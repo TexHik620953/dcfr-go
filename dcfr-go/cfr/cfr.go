@@ -19,13 +19,7 @@ func (h *ActorsContext) Clone() *ActorsContext {
 		States: make(map[int]*ActorState),
 	}
 	for k, v := range h.States {
-		s := &ActorState{
-			LstmH: make([]float32, len(v.LstmH)),
-			LstmC: make([]float32, len(v.LstmC)),
-		}
-		copy(s.LstmC, v.LstmC)
-		copy(s.LstmH, v.LstmH)
-		c.States[k] = s
+		c.States[k] = v.Clone()
 	}
 	return c
 }
@@ -34,9 +28,10 @@ func (h *ActorsContext) At(player int) *ActorState {
 }
 
 type CFR struct {
-	coreGame *nolimitholdem.Game
-	actor    CFRActor
-	Memory   *MemoryBuffer
+	coreGame       *nolimitholdem.Game
+	actor          CFRActor
+	Memory         *MemoryBuffer
+	StrategyMemory *StrategyMemoryBuffer
 
 	stats *CFRStats
 
@@ -47,13 +42,14 @@ type CFRStats struct {
 	TreesTraversed atomic.Int32
 }
 
-func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuffer, stats *CFRStats) *CFR {
+func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuffer, strategyMemory *StrategyMemoryBuffer, stats *CFRStats) *CFR {
 	h := &CFR{
-		coreGame: game,
-		actor:    actor,
-		Memory:   memory,
-		stats:    stats,
-		rng:      rand.New(rand.NewSource(seed)),
+		coreGame:       game,
+		actor:          actor,
+		Memory:         memory,
+		StrategyMemory: strategyMemory,
+		stats:          stats,
+		rng:            rand.New(rand.NewSource(seed)),
 	}
 
 	h.coreGame.Reset()
@@ -70,25 +66,31 @@ func (h *CFR) TraverseTree(learnerId int, iteration int) ([]float32, error) {
 		States: map[int]*ActorState{},
 	}
 	for i := range h.coreGame.PlayersCount() {
-		playersContext.States[i] = &ActorState{
-			LstmH: nil,
-			LstmC: nil,
-		}
+		playersContext.States[i] = &ActorState{}
 	}
 
 	gameID := uuid.New()
 
-	payoffs, err := h.traverser(learnerId, iteration, gameID, playersContext)
+	payoffs, err := h.traverser(learnerId, iteration, gameID, playersContext, 0)
 	if err != nil {
 		return nil, err
+	}
+	// Flush the completed game into the reservoir
+	h.Memory.FlushGame(learnerId, gameID)
+	// Flush strategy samples for all players (for average strategy network)
+	for i := range h.coreGame.PlayersCount() {
+		h.StrategyMemory.FlushGame(i, gameID)
 	}
 	h.stats.TreesTraversed.Add(1)
 	return payoffs, nil
 }
 
-func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersState *ActorsContext) ([]float32, error) {
+func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersState *ActorsContext, depth int) ([]float32, error) {
 	h.stats.NodesVisited.Add(1)
 	if h.coreGame.IsOver() {
+		return h.coreGame.GetPayoffs(), nil
+	}
+	if depth > 100 {
 		return h.coreGame.GetPayoffs(), nil
 	}
 
@@ -105,15 +107,17 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 	if err != nil {
 		return nil, err
 	}
-	// Store new context for player
-	actorState.LstmC = actionContext.LstmC
-	actorState.LstmH = actionContext.LstmH
+	// Store new context for player (transformer history features)
+	actorState.LstmH = actionContext.HistoryContext
+
+	// Collect strategy sample for average strategy network (all players)
+	h.StrategyMemory.AddSample(currentPlayer, gameID, &CFRState{
+		GameState:  state,
+		ActorState: actorState,
+	}, actionContext.Strategy, cfr_it)
 
 	// For opponent, use only one action
 	if currentPlayer != learnerId {
-		// Uncomment later
-		// h.Memory.AddStrategySample(state, actionProbs, cfr_it)
-
 		_action, err := random.Sample(h.rng, actionContext.Strategy)
 		if err != nil {
 			return nil, fmt.Errorf("Invalid probs sum")
@@ -121,7 +125,7 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 		action := nolimitholdem.Action(_action)
 
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone())
+		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone(), depth+1)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +140,7 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 	// Iterate over all possible actions
 	for action, actProb := range actionContext.Strategy {
 		h.coreGame.Step(action)
-		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone())
+		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone(), depth+1)
 		if err != nil {
 			return nil, err
 		}

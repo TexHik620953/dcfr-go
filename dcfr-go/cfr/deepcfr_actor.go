@@ -11,8 +11,8 @@ type CFRActorStateHash uint64
 
 type StrategyWithContext struct {
 	Strategy nolimitholdem.Strategy
-	LstmH    []float32
-	LstmC    []float32
+	// Transformer history context (flattened sequence features)
+	HistoryContext []float32
 }
 
 type CFRState struct {
@@ -27,16 +27,10 @@ func (h *CFRState) Hash() uint64 {
 }
 
 func (h *CFRState) WriteHash(hasher hash.Hash64) {
-	// Хэшируем GameState
 	h.GameState.WriteHash(hasher)
 
-	// Хэшируем LstmH
+	// Hash history context
 	for _, val := range h.ActorState.LstmH {
-		binary.Write(hasher, binary.LittleEndian, val)
-	}
-
-	// Хэшируем LstmC
-	for _, val := range h.ActorState.LstmC {
 		binary.Write(hasher, binary.LittleEndian, val)
 	}
 }
@@ -59,7 +53,6 @@ func NewDeepCFRActor(cache *ActionsCache, executor *GRPCBatchExecutor) CFRActor 
 
 func (h *DeepCFRActor) GetProbs(state *CFRState) (*StrategyWithContext, error) {
 	stateHash := state.Hash()
-	// All players use their own current strategy (from their own network)
 	strategy, ex := h.cache.GetRecord(int(state.GameState.CurrentPlayer), stateHash)
 	if !ex {
 		var err error

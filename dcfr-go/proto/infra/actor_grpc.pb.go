@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Actor_GetProbs_FullMethodName = "/infra.Actor/GetProbs"
-	Actor_Train_FullMethodName    = "/infra.Actor/Train"
-	Actor_Save_FullMethodName     = "/infra.Actor/Save"
-	Actor_Reset_FullMethodName    = "/infra.Actor/Reset"
+	Actor_GetProbs_FullMethodName         = "/infra.Actor/GetProbs"
+	Actor_Train_FullMethodName            = "/infra.Actor/Train"
+	Actor_Save_FullMethodName             = "/infra.Actor/Save"
+	Actor_Reset_FullMethodName            = "/infra.Actor/Reset"
+	Actor_TrainAvgStrategy_FullMethodName = "/infra.Actor/TrainAvgStrategy"
 )
 
 // ActorClient is the client API for Actor service.
@@ -39,6 +40,8 @@ type ActorClient interface {
 	Save(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	// Сбросить сети до стартового состояния
 	Reset(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
+	// Тренировать average strategy сеть
+	TrainAvgStrategy(ctx context.Context, in *TrainAvgStrategyRequest, opts ...grpc.CallOption) (*TrainResponse, error)
 }
 
 type actorClient struct {
@@ -89,6 +92,16 @@ func (c *actorClient) Reset(ctx context.Context, in *Empty, opts ...grpc.CallOpt
 	return out, nil
 }
 
+func (c *actorClient) TrainAvgStrategy(ctx context.Context, in *TrainAvgStrategyRequest, opts ...grpc.CallOption) (*TrainResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TrainResponse)
+	err := c.cc.Invoke(ctx, Actor_TrainAvgStrategy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ActorServer is the server API for Actor service.
 // All implementations must embed UnimplementedActorServer
 // for forward compatibility.
@@ -103,6 +116,8 @@ type ActorServer interface {
 	Save(context.Context, *Empty) (*Empty, error)
 	// Сбросить сети до стартового состояния
 	Reset(context.Context, *Empty) (*Empty, error)
+	// Тренировать average strategy сеть
+	TrainAvgStrategy(context.Context, *TrainAvgStrategyRequest) (*TrainResponse, error)
 	mustEmbedUnimplementedActorServer()
 }
 
@@ -124,6 +139,9 @@ func (UnimplementedActorServer) Save(context.Context, *Empty) (*Empty, error) {
 }
 func (UnimplementedActorServer) Reset(context.Context, *Empty) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method Reset not implemented")
+}
+func (UnimplementedActorServer) TrainAvgStrategy(context.Context, *TrainAvgStrategyRequest) (*TrainResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TrainAvgStrategy not implemented")
 }
 func (UnimplementedActorServer) mustEmbedUnimplementedActorServer() {}
 func (UnimplementedActorServer) testEmbeddedByValue()               {}
@@ -218,6 +236,24 @@ func _Actor_Reset_Handler(srv interface{}, ctx context.Context, dec func(interfa
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Actor_TrainAvgStrategy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TrainAvgStrategyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActorServer).TrainAvgStrategy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Actor_TrainAvgStrategy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActorServer).TrainAvgStrategy(ctx, req.(*TrainAvgStrategyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Actor_ServiceDesc is the grpc.ServiceDesc for Actor service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -240,6 +276,10 @@ var Actor_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Reset",
 			Handler:    _Actor_Reset_Handler,
+		},
+		{
+			MethodName: "TrainAvgStrategy",
+			Handler:    _Actor_TrainAvgStrategy_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

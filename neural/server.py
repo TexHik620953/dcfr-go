@@ -5,29 +5,32 @@ print("Init")
 import grpc
 from concurrent import futures
 import numpy as np
+import traceback
 
 from torch.utils.tensorboard import SummaryWriter
 
 import actor_pb2 as actor_pb2
 import actor_pb2_grpc as actor_pb2_grpc
-from networks.network import DeepCFRModel
-from utils.convert import convert_pbstate_to_tensor, convert_states_to_batch
+from networks.network import DeepCFRModel, AvgStrategyModel, NUM_ACTIONS
+from utils.convert import convert_pbstate_to_tensor, convert_states_to_batch, convert_strategy_states_to_batch
 import torch.nn.functional as F
 import datetime
 import torch
 print("Init")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Launching on: ", device)
-# 3 нейросети для игроков
 
-# Создаем игроков
+# DCFR weighting parameter
+DCFR_ALPHA = 1.5
+
+# Create player networks
 ply_networks = []
 for i in range(3):
     print("Creating: ", i, " network")
     net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
     ply_networks.append(net)
 
-# Пытаемся загрузить оригинальную сеть
+# Try to load initial network
 try:
     ply_networks[0].load("initial")
     print("Initial model loaded")
@@ -36,190 +39,226 @@ except:
     ply_networks[0].save("initial")
 
 initial_state = ply_networks[0].state_dict()
-intial_opt_state = ply_networks[0].optimizer.state_dict()
+initial_opt_state = ply_networks[0].optimizer.state_dict()
 
 for net in ply_networks[1:]:
     net.load_state_dict(initial_state)
-    net.optimizer.load_state_dict(intial_opt_state)
+    net.optimizer.load_state_dict(initial_opt_state)
 print("Networks created")
+
+# Create average strategy networks (one per player)
+avg_networks = []
+for i in range(3):
+    print("Creating avg strategy network: ", i)
+    net = AvgStrategyModel(f"avg{i}", lr=1e-3).to(device)
+    avg_networks.append(net)
+print("Avg strategy networks created")
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 
 
-
 def train_net(network, game_samples):
-    data = [[sample for sample in game.samples] for game in game_samples]
+    """Train advantage network. Each sample is independent with its saved context vector."""
+    flat_samples = []
+    for game in game_samples:
+        for sample in game.samples:
+            flat_samples.append(sample)
 
+    if len(flat_samples) == 0:
+        return 0.0
 
-    game_indexes = []
-    game_samples = []
+    samples, (iterations, regrets) = convert_states_to_batch(flat_samples, device)
+    stages = samples[6].squeeze(1)
 
-    for game_idx in range(len(data)):
-        game = data[game_idx]
-        for episode_idx in range(len(game)):
-            eposode = game[episode_idx]
-            game_samples.append(eposode)
-            game_indexes.append(game_idx)
-
-    samples, (iterations, regrets) = convert_states_to_batch(game_samples, device)
-
-    # Start training here
     network.optimizer.zero_grad()
 
-    features = network.encode_features(samples)
-    # Now we have all features for all steps for all games
-    # We need to recombine them back to steps
+    features = network.encode_features(samples)  # [N, hidden]
 
-    # stages[game][stage]
-    stages = [[]for _ in range(len(game_indexes))]
-    for game_idx in game_indexes:
-        stages[game_idx].append((features[game_idx], iterations[game_idx], regrets[game_idx]))
+    # Reconstruct fixed-size context vectors from saved state
+    hidden_dim = network.hidden_dim
+    contexts = []
+    for sample in flat_samples:
+        h_flat = list(sample.lstm_context_h)
+        if len(h_flat) == hidden_dim:
+            contexts.append(torch.tensor(h_flat, device=device, dtype=torch.float32))
+        else:
+            contexts.append(torch.zeros(hidden_dim, device=device))
+    context = torch.stack(contexts)  # [N, hidden]
 
-    # transpose list to stages[stage][game]
-    # Longest games first
-    stages.sort(key=len, reverse=True)
-    longest_game = len(stages[0])
+    # Update context through GRU
+    new_context = network.context_updater(features, context)
 
-    transposed_stages = [[] for _ in range(longest_game)]
-    for game in stages:
-        for stage_idx in range(len(game)):
-            stage = game[stage_idx]
-            transposed_stages[stage_idx].append(stage)
+    logits = network.get_action_logits(features, new_context, stages)
 
-    lstm_contexts = None
+    # === BATCH-LEVEL regret normalization ===
+    regret_mean = regrets.mean()
+    regret_std = regrets.std().clamp(min=1e-8)
+    normalized_regrets = (regrets - regret_mean) / regret_std
 
-    total_loss = 0
-    stage_losses = []
-    stage_entropies = []
-    stage_means = []
-    stage_stds = []
+    # === DCFR weighting: w_t = t^alpha ===
+    dcfr_weights = (iterations + 1).pow(DCFR_ALPHA)
+    dcfr_weights = dcfr_weights / dcfr_weights.sum()
 
-    # Iterate over stages and calculate loss
-    for stage_idx in range(len(transposed_stages)):
-        stage = transposed_stages[stage_idx]
+    # MSE loss with DCFR weighting
+    loss = ((torch.square(logits - normalized_regrets)).sum(dim=1) * dcfr_weights).sum()
 
-        features = torch.vstack([s[0] for s in stage])
-        iterations = torch.vstack([s[1] for s in stage])
-        regrets = torch.vstack([s[2] for s in stage])
-        # Нормализуем регреты
-        regrets = (regrets - regrets.mean(dim=1, keepdim=True))/regrets.std(dim=1, keepdim=True)
+    probs = F.softmax(logits, dim=1)
+    entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1).mean()
+    loss = loss - 0.005 * entropy
 
-        # Cut lstm context from previous iteration
-        if lstm_contexts is not None:
-            lstm_contexts = (lstm_contexts[0][:, :features.shape[0],:], lstm_contexts[1][:, :features.shape[0],:])
-
-        logits, new_context = network.process_features(features, lstm_contexts)
-
-        lstm_contexts = new_context
-
-        # Linear CFR weighting: iteration t gets weight proportional to t
-        it_weights = (iterations + 1) / (iterations.max() + 1)
-
-        # Calculate loss
-        # MSE loss between predicted advantages and actual regrets (no clamping)
-        loss = ((torch.square(logits - regrets)).sum(dim=1) * it_weights).mean()
-
-        probs = F.softmax(logits, dim=1)
-        entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1)  # Чем выше, тем лучше
-        entropy = entropy.mean()
-        loss = loss - 0.005 * entropy
-        total_loss += loss.item()
-        loss.backward(retain_graph=(stage_idx<len(transposed_stages)-1))
-
-        stage_losses.append(loss.item())
-        stage_entropies.append(entropy.item())
-        stage_means.append(regrets.mean().item())
-        stage_stds.append(regrets.std().item())
-
-
+    loss.backward()
     torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
     network.optimizer.step()
     network.scheduler.step()
 
-    # Логирование в TensorBoard
-    if network.step % 10 == 0:  # Каждые 10 шагов
-        step = network.step
+    total_loss = loss.item()
 
-        # Основные метрики
+    # TensorBoard logging
+    if network.step % 2 == 0:
+        step = network.step
         tensorboard.add_scalar(f"{network.name}/total_loss", total_loss, step)
-        tensorboard.add_scalar(f"{network.name}/avg_stage_loss", np.mean(stage_losses), step)
-        tensorboard.add_scalar(f"{network.name}/avg_entropy", np.mean(stage_entropies), step)
+        tensorboard.add_scalar(f"{network.name}/entropy", entropy.item(), step)
         tensorboard.add_scalar(f"{network.name}/learning_rate",
                                network.optimizer.param_groups[0]['lr'], step)
 
-        # Статистика регретов
-        tensorboard.add_scalar(f"{network.name}/regret_mean", np.mean(stage_means), step)
-        tensorboard.add_scalar(f"{network.name}/regret_std", np.mean(stage_stds), step)
-
-        # Градиенты (каждые 50 шагов)
         if step % 10 == 0:
             total_grad_norm = 0
             for name, param in network.named_parameters():
                 if param.grad is not None:
-                    grad_norm = param.grad.norm().item()
-                    total_grad_norm += grad_norm ** 2
-
-                    # Логируем градиенты для важных слоев
-                    if 'lstm' in name or 'attention' in name or 'head' in name:
-                        tensorboard.add_histogram(f"{network.name}/grads/{name}",
-                                                  param.grad.cpu(), step)
-                        tensorboard.add_scalar(f"{network.name}/grad_norm/{name}",
-                                               grad_norm, step)
-
-            # Общая норма градиентов
+                    total_grad_norm += param.grad.norm().item() ** 2
             tensorboard.add_scalar(f"{network.name}/grad_total_norm",
                                    total_grad_norm ** 0.5, step)
-
-            # Веса модели
-            for name, param in network.named_parameters():
-                if 'lstm' in name or 'attention' in name or 'head' in name:
-                    tensorboard.add_histogram(f"{network.name}/weights/{name}",
-                                              param.data.cpu(), step)
 
     network.step += 1
     return total_loss
 
+
+def train_avg_net(network, game_samples):
+    """Train average strategy network using KL divergence loss."""
+    flat_samples = []
+    for game in game_samples:
+        for sample in game.samples:
+            flat_samples.append(sample)
+
+    if len(flat_samples) == 0:
+        return 0.0
+
+    samples, (iterations, target_strategies) = convert_strategy_states_to_batch(flat_samples, device)
+    stages = samples[6].squeeze(1)
+
+    network.optimizer.zero_grad()
+
+    features = network.encode_features(samples)
+
+    hidden_dim = network.hidden_dim
+    contexts = []
+    for sample in flat_samples:
+        h_flat = list(sample.lstm_context_h)
+        if len(h_flat) == hidden_dim:
+            contexts.append(torch.tensor(h_flat, device=device, dtype=torch.float32))
+        else:
+            contexts.append(torch.zeros(hidden_dim, device=device))
+    context = torch.stack(contexts)
+
+    new_context = network.context_updater(features, context)
+
+    logits = network.get_action_logits(features, new_context, stages)
+
+    # Linear weighting for average strategy: w_t = t + 1
+    linear_weights = (iterations + 1)
+    linear_weights = linear_weights / linear_weights.sum()
+
+    log_probs = F.log_softmax(logits, dim=1)
+    target_clamped = target_strategies.clamp(min=1e-8)
+    kl_loss = F.kl_div(log_probs, target_clamped, reduction='none').sum(dim=1)
+    loss = (kl_loss * linear_weights).sum()
+
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
+    network.optimizer.step()
+    network.scheduler.step()
+
+    total_loss = loss.item()
+
+    if network.step % 2 == 0:
+        tensorboard.add_scalar(f"{network.name}/total_loss", total_loss, network.step)
+
+    network.step += 1
+    return total_loss
+
+
 class ActorServicer(actor_pb2_grpc.ActorServicer):
     def __init__(self):
         self.handled = 0
-        self.avg_handled = 0
+
     def GetProbs(self, request, context):
-        self.handled+=len(request.states)
-        print(f"Handled: {self.handled} requests")
-        curr_player = request.states[0].game_state.current_player
+        try:
+            self.handled += len(request.states)
+            if self.handled % 10000 < len(request.states):
+                print(f"Handled: {self.handled} requests")
+            curr_player = request.states[0].game_state.current_player
 
-        state, actions_mask, lstm_context = convert_pbstate_to_tensor(request.states, device)
-        probs, (lstm_h, lstm_c) = ply_networks[curr_player].get_probs(state, actions_mask, lstm_context)
+            state, actions_mask, history_h = convert_pbstate_to_tensor(request.states, device)
 
-        probs = probs.cpu().numpy()
-        lstm_h = lstm_h.cpu().numpy()
-        lstm_c = lstm_c.cpu().numpy()
+            # Reconstruct fixed-size context vectors
+            hidden_dim = ply_networks[curr_player].hidden_dim
+            prev_context = None
+            if history_h[0] is not None:
+                ctx_list = []
+                for h_flat in history_h:
+                    if h_flat is not None and len(h_flat) == hidden_dim:
+                        ctx_list.append(torch.tensor(h_flat, device=device, dtype=torch.float32).unsqueeze(0))
+                    else:
+                        ctx_list.append(torch.zeros(1, hidden_dim, device=device))
+                prev_context = torch.cat(ctx_list, dim=0)  # [batch, hidden]
 
-        resp = actor_pb2.ActionProbsResponse()
-        for unit_id in range(probs.shape[0]):
-            r = actor_pb2.ProbsResponse()
+            probs, new_context = ply_networks[curr_player].get_probs(state, actions_mask, prev_context)
 
-            for i, prob in enumerate(probs[unit_id].tolist()):
-                if prob > 1e-8:
-                    r.action_probs[i] = prob
-            r.lstm_context_h.extend(lstm_h[:, unit_id, :].flatten().tolist())
-            r.lstm_context_c.extend(lstm_c[:, unit_id, :].flatten().tolist())
+            probs = probs.cpu().numpy()
+            new_context_np = new_context.cpu().numpy()  # [batch, hidden_dim]
 
-            if len(r.action_probs) == 0:
-                print(r.action_probs)
-            resp.responses.append(r)
-        return resp
+            resp = actor_pb2.ActionProbsResponse()
+            for unit_id in range(probs.shape[0]):
+                r = actor_pb2.ProbsResponse()
+
+                for i, prob in enumerate(probs[unit_id].tolist()):
+                    if prob > 1e-8:
+                        r.action_probs[i] = prob
+
+                # Store fixed-size context vector (exactly hidden_dim floats)
+                r.lstm_context_h.extend(new_context_np[unit_id].tolist())
+
+                resp.responses.append(r)
+            return resp
+        except Exception as e:
+            traceback.print_exc()
+            raise e
 
     def Train(self, request, context):
-        curr_player = request.current_player
+        try:
+            curr_player = request.current_player
+            net = ply_networks[curr_player]
+            loss = train_net(net, request.game_samples)
+            return actor_pb2.TrainResponse(loss=loss)
+        except Exception as e:
+            traceback.print_exc()
+            raise e
 
-        net = ply_networks[curr_player]
-        loss = train_net(net, request.game_samples)
-        return actor_pb2.TrainResponse(loss=loss)
+    def TrainAvgStrategy(self, request, context):
+        try:
+            curr_player = request.current_player
+            net = avg_networks[curr_player]
+            loss = train_avg_net(net, request.game_samples)
+            return actor_pb2.TrainResponse(loss=loss)
+        except Exception as e:
+            traceback.print_exc()
+            raise e
 
     def Save(self, request, context):
         print("Saving networks")
         for net in ply_networks:
+            net.save(datetime.datetime.now())
+        for net in avg_networks:
             net.save(datetime.datetime.now())
         return actor_pb2.Empty()
 
@@ -228,14 +267,14 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
         print("Resetting networks")
         for net in ply_networks:
             net.load_state_dict(initial_state)
-            net.optimizer.load_state_dict(intial_opt_state)
+            net.optimizer.load_state_dict(initial_opt_state)
         return actor_pb2.Empty()
 
 def serve():
     server_options = [
-        ('grpc.max_send_message_length', 512 * 1024 * 1024),  # 512 MB
-        ('grpc.max_receive_message_length', 512 * 1024 * 1024),  # 512 MB
-        ('grpc.max_metadata_size', 16 * 1024 * 1024),  # Опционально: увеличить размер метаданных
+        ('grpc.max_send_message_length', 512 * 1024 * 1024),
+        ('grpc.max_receive_message_length', 512 * 1024 * 1024),
+        ('grpc.max_metadata_size', 16 * 1024 * 1024),
     ]
 
     server = grpc.server(

@@ -72,29 +72,27 @@ func (g *Game) load(cp *Game) {
 	if cp == nil {
 		return
 	}
-	// Восстанавливаем простые поля
 	g.config = cp.config
 	g.stage = cp.stage
 	g.deallerId = cp.deallerId
 	g.gamePointer = cp.gamePointer
 	g.round_counter = cp.round_counter
 	g.game_number = cp.game_number
-
-	// Восстанавливаем генератор случайных чисел
 	g.randGen = cp.randGen
 
-	// Восстанавливаем игроков
+	// Deep copy players
 	g.players = make([]*Player, len(cp.players))
-	copy(g.players, cp.players)
+	for i, p := range cp.players {
+		if p != nil {
+			g.players[i] = p.DeepCopy()
+		}
+	}
 
-	// Восстанавливаем общественные карты
 	g.publicCards = make([]Card, len(cp.publicCards))
 	copy(g.publicCards, cp.publicCards)
 
-	// Восстанавливаем раунд
-	g.round = cp.round
-
-	g.deck = cp.deck
+	g.round = cp.round.DeepCopy()
+	g.deck = cp.deck.DeepCopy()
 }
 
 func NewGame(config GameConfig) *Game {
@@ -123,8 +121,6 @@ func (h *Game) Reset() *GameState {
 			InChips:       0,
 			Status:        PLAYERSTATUS_ACTIVE,
 		}
-		// Sort players cards
-		slices.Sort(h.players[i].HoleCards[:])
 	}
 
 	// Deal hole cards
@@ -133,6 +129,10 @@ func (h *Game) Reset() *GameState {
 	}
 	for i := range h.players {
 		h.players[i].HoleCards[1] = h.deck.Get()
+	}
+	// Sort hole cards after dealing
+	for i := range h.players {
+		slices.Sort(h.players[i].HoleCards[:])
 	}
 
 	h.history = make([]*Game, 0)
@@ -212,34 +212,29 @@ func (h *Game) Step(action Action) {
 				h.gamePointer = (h.gamePointer + 1) % h.config.NumPlayers
 			}
 		}
-		//log.Printf("Turn goes to player %d", h.gamePointer)
 
-		if h.round_counter == 0 {
-			h.stage = STAGE_FLOP
-			// Deal 3 cards to public
-			h.publicCards = append(h.publicCards, h.deck.Get(), h.deck.Get(), h.deck.Get())
-			if h.config.NumPlayers == bypassed_players_count {
+		// Advance through stages; if all players are bypassed, skip ahead
+		for h.round_counter < 4 {
+			if h.round_counter == 0 {
+				h.stage = STAGE_FLOP
+				h.publicCards = append(h.publicCards, h.deck.Get(), h.deck.Get(), h.deck.Get())
+			} else if h.round_counter == 1 {
+				h.stage = STAGE_TURN
+				h.publicCards = append(h.publicCards, h.deck.Get())
+			} else if h.round_counter == 2 {
+				h.stage = STAGE_RIVER
+				h.publicCards = append(h.publicCards, h.deck.Get())
+			} else if h.round_counter == 3 {
+				// Post-river: game should end
 				h.round_counter++
+				break
 			}
-			//log.Printf("Stage is now FLOP: %d", len(h.publicCards))
-		}
-		if h.round_counter == 1 {
-			h.stage = STAGE_TURN
-			h.publicCards = append(h.publicCards, h.deck.Get())
-			if h.config.NumPlayers == bypassed_players_count {
-				h.round_counter++
+			h.round_counter++
+			// If all players are bypassed (all-in/folded), continue to next stage
+			if bypassed_players_count < h.config.NumPlayers {
+				break
 			}
-			//log.Printf("Stage is now TURN: %d", len(h.publicCards))
 		}
-		if h.round_counter == 2 {
-			h.stage = STAGE_RIVER
-			h.publicCards = append(h.publicCards, h.deck.Get())
-			if h.config.NumPlayers == bypassed_players_count {
-				h.round_counter++
-			}
-			//log.Printf("Stage is now RIVER: %d", len(h.publicCards))
-		}
-		h.round_counter++
 		h.round.StartNewRound(h.gamePointer, h.players)
 	}
 }

@@ -37,6 +37,24 @@ message GameSample {
   repeated StateSample samples = 1;
 }
 
+// Strategy sample for average strategy network
+message StrategySample {
+  GameState game_state = 1;
+  map<int32, float> strategy = 2; // Action -> probability
+  int32 iteration = 3;
+  repeated float lstm_context_h = 4;
+}
+
+message StrategyGameSample {
+  repeated StrategySample samples = 1;
+}
+
+// Training request for average strategy network
+message TrainAvgStrategyRequest {
+  int32 current_player = 1;
+  repeated StrategyGameSample game_samples = 2;
+}
+
 
 // Стадии игры
 enum GameStage {
@@ -60,6 +78,9 @@ service Actor {
 
   // Сбросить сети до стартового состояния
   rpc Reset(Empty) returns (Empty) {}
+
+  // Тренировать average strategy сеть
+  rpc TrainAvgStrategy (TrainAvgStrategyRequest) returns (TrainResponse) {}
 }
 
 // Запрос состояния игры

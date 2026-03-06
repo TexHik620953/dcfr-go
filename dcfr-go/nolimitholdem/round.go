@@ -60,17 +60,30 @@ func (h *Round) StartNewRound(gamePointer int, players []*Player) {
 	}
 }
 
+// calcPotAfterCall returns (callAmount, totalPotAfterCall) for current player
+func (h *Round) calcPotAfterCall(players []*Player) (int, int) {
+	maxRaised := slices.Max(h.round_raised)
+	callAmount := maxRaised - h.round_raised[h.gamePointer]
+	totalPotAfterCall := callAmount
+	for _, p := range players {
+		totalPotAfterCall += p.InChips
+	}
+	return callAmount, totalPotAfterCall
+}
+
 func (h *Round) ProceedRound(players []*Player, action Action) int {
 	player := players[h.gamePointer]
 	maxRaised := slices.Max(h.round_raised)
 
-	if action == ACTION_CHECK_CALL {
+	switch {
+	case action == ACTION_CHECK_CALL:
 		diff := maxRaised - h.round_raised[h.gamePointer]
 		actualBet := min(diff, player.RemainedChips)
 		h.round_raised[h.gamePointer] += actualBet
 		player.Bet(actualBet)
 		h.notRaiseCount++
-	} else if action == ACTION_ALL_IN {
+
+	case action == ACTION_ALL_IN:
 		allInAmount := player.RemainedChips
 		h.round_raised[h.gamePointer] += allInAmount
 		player.Bet(allInAmount)
@@ -79,28 +92,22 @@ func (h *Round) ProceedRound(players []*Player, action Action) int {
 		} else {
 			h.notRaiseCount++
 		}
-	} else if action == ACTION_RAISE_POT {
-		callAmount := maxRaised - h.round_raised[h.gamePointer]
-		totalPotAfterCall := callAmount
-		for _, p := range players {
-			totalPotAfterCall += p.InChips
-		}
-		totalBet := callAmount + totalPotAfterCall
-		h.round_raised[h.gamePointer] += totalBet
-		player.Bet(totalBet)
-		h.notRaiseCount = 1
-	} else if action == ACTION_RAISE_HALFPOT {
-		callAmount := maxRaised - h.round_raised[h.gamePointer]
-		totalPotAfterCall := callAmount
-		for _, p := range players {
-			totalPotAfterCall += p.InChips
-		}
-		totalBet := callAmount + totalPotAfterCall/2
-		h.round_raised[h.gamePointer] += totalBet
-		player.Bet(totalBet)
-		h.notRaiseCount = 1
-	} else if action == ACTION_FOLD {
+
+	case action == ACTION_FOLD:
 		player.Status = PLAYERSTATUS_FOLDED
+
+	default:
+		// All raise actions use RaiseMultipliers
+		mult, ok := RaiseMultipliers[action]
+		if !ok {
+			panic("unknown raise action")
+		}
+		callAmount, totalPotAfterCall := h.calcPotAfterCall(players)
+		raiseAmount := totalPotAfterCall * mult[0] / mult[1]
+		totalBet := callAmount + raiseAmount
+		h.round_raised[h.gamePointer] += totalBet
+		player.Bet(totalBet)
+		h.notRaiseCount = 1
 	}
 
 	if player.RemainedChips == 0 && player.Status != PLAYERSTATUS_FOLDED {
@@ -132,33 +139,23 @@ func (h *Round) LegalActions(players []*Player) map[Action]struct{} {
 	}
 
 	player := players[h.gamePointer]
-	maxRaised := slices.Max(h.round_raised)
-	callAmount := maxRaised - h.round_raised[h.gamePointer]
+	callAmount, totalPotAfterCall := h.calcPotAfterCall(players)
 
 	// If call alone consumes all chips, no raises possible
 	if callAmount >= player.RemainedChips {
 		return actions
 	}
 
-	// Calculate pot after call
-	totalPotAfterCall := callAmount
-	for _, p := range players {
-		totalPotAfterCall += p.InChips
-	}
-
-	// Pot raise = call + pot_after_call
-	potRaiseBet := callAmount + totalPotAfterCall
-	// Half-pot raise = call + pot_after_call/2
-	halfPotRaiseBet := callAmount + totalPotAfterCall/2
-
 	// All-in is always available if player has chips beyond the call
 	actions[ACTION_ALL_IN] = struct{}{}
 
-	if potRaiseBet <= player.RemainedChips {
-		actions[ACTION_RAISE_POT] = struct{}{}
-	}
-	if halfPotRaiseBet <= player.RemainedChips && halfPotRaiseBet > callAmount {
-		actions[ACTION_RAISE_HALFPOT] = struct{}{}
+	// Add each raise size if affordable and meaningful
+	for raiseAction, mult := range RaiseMultipliers {
+		raiseAmount := totalPotAfterCall * mult[0] / mult[1]
+		totalBet := callAmount + raiseAmount
+		if totalBet <= player.RemainedChips && raiseAmount > 0 {
+			actions[raiseAction] = struct{}{}
+		}
 	}
 
 	return actions

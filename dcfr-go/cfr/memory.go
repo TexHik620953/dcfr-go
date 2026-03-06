@@ -6,38 +6,23 @@ import (
 	"encoding/json"
 	"math/rand"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type IMemoryBuffer interface {
-	AddStrategySample(state *nolimitholdem.GameState, strategy nolimitholdem.Strategy, iteration int)
-	AddSample(
-		playerID int,
-		gameID uuid.UUID,
-		state *nolimitholdem.GameState,
-		regrets map[nolimitholdem.Action]float32,
-		iteration int,
-		lstmH []float32,
-		lstmC []float32,
-	)
-}
-
 type ActorState struct {
+	// LstmH is reused to store transformer history context (flattened sequence features)
 	LstmH []float32
-	LstmC []float32
 }
 
 func (h *ActorState) Clone() *ActorState {
-	a := &ActorState{
-		LstmH: make([]float32, len(h.LstmH)),
-		LstmC: make([]float32, len(h.LstmC)),
+	a := &ActorState{}
+	if h.LstmH != nil {
+		a.LstmH = make([]float32, len(h.LstmH))
+		copy(a.LstmH, h.LstmH)
 	}
-	copy(a.LstmC, h.LstmC)
-	copy(a.LstmH, h.LstmH)
 	return a
 }
 
@@ -45,38 +30,45 @@ type GameSample struct {
 	States []*StateSample
 }
 
-// GameSample хранит данные одного состояния для обучения
 type StateSample struct {
-	GameState  *nolimitholdem.GameState         // Состояние игры
-	ActorState *ActorState                      // Внутреннее состояние игрока
-	Regrets    map[nolimitholdem.Action]float32 // Сожаления для каждого действия
-	Iteration  int                              // Итерация, на которой был собран пример
+	GameState  *nolimitholdem.GameState
+	ActorState *ActorState
+	Regrets    map[nolimitholdem.Action]float32
+	Iteration  int
 }
 
-type Game struct {
-	CreatedAt time.Time
-	Samples   []*StateSample
+// StrategyGameSample holds strategy samples for one game (for average strategy network)
+type StrategyGameSample struct {
+	States []*StrategySample
 }
 
-// MemoryBuffer кэширует данные для обучения нейросетей
+type StrategySample struct {
+	GameState  *nolimitholdem.GameState
+	ActorState *ActorState
+	Strategy   nolimitholdem.Strategy
+	Iteration  int
+}
+
+// MemoryBuffer uses reservoir sampling to maintain a fixed-size buffer per player.
+// Games are accumulated in a pending map during traversal, then flushed to the
+// reservoir once complete.
 type MemoryBuffer struct {
-	samp_mu    sync.RWMutex
-	samples    map[int]map[uuid.UUID]*Game // samples[playerID] -> []*Sample
-	maxSamples int                         // Максимальное число примеров на игрока
-	pruneRatio float32                     // Доля старых примеров для удаления
-	rng        *rand.Rand                  // Генератор случайных чисел
-
+	mu         sync.Mutex
+	reservoir  map[int][]*GameSample // reservoir[playerID] -> fixed-size slice
+	pending    map[int]map[uuid.UUID]*GameSample
+	maxSamples int
+	totalSeen  map[int]int64
+	rng        *rand.Rand
 }
 
-// NewMemoryBuffer создает буфер с настройками
-func NewMemoryBuffer(maxSamples int, pruneRatio float32) (*MemoryBuffer, error) {
+func NewMemoryBuffer(maxSamples int) (*MemoryBuffer, error) {
 	m := &MemoryBuffer{
-		samples:    make(map[int]map[uuid.UUID]*Game),
+		reservoir:  make(map[int][]*GameSample),
+		pending:    make(map[int]map[uuid.UUID]*GameSample),
 		maxSamples: maxSamples,
-		pruneRatio: pruneRatio,
+		totalSeen:  make(map[int]int64),
 		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
-
 	return m, nil
 }
 
@@ -85,23 +77,27 @@ func (m *MemoryBuffer) Save() error {
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(f).Encode(m.samples)
+	defer f.Close()
+	return json.NewEncoder(f).Encode(m.reservoir)
 }
+
 func (m *MemoryBuffer) Load() error {
 	f, err := os.Open("bufferdata.json")
 	if err != nil {
 		return err
 	}
-	return json.NewDecoder(f).Decode(&m.samples)
+	defer f.Close()
+	return json.NewDecoder(f).Decode(&m.reservoir)
 }
 
 func (m *MemoryBuffer) Count(playerID int) int {
-	m.samp_mu.Lock()
-	defer m.samp_mu.Unlock()
-	return len(m.samples[playerID])
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.reservoir[playerID])
 }
 
-// AddSample добавляет новый пример для игрока и раздачи
+// AddSample adds a state sample to a pending game. Call FlushGame when the
+// traversal for this game is complete.
 func (m *MemoryBuffer) AddSample(
 	playerID int,
 	gameID uuid.UUID,
@@ -109,94 +105,180 @@ func (m *MemoryBuffer) AddSample(
 	regrets map[nolimitholdem.Action]float32,
 	iteration int,
 ) {
-	m.samp_mu.Lock()
-	defer m.samp_mu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Создаем новый пример
 	sample := &StateSample{
 		GameState:  state.GameState.Clone(),
 		ActorState: state.ActorState.Clone(),
 		Regrets:    linq.CopyMap(regrets),
 		Iteration:  iteration,
 	}
-	// Получаем баккит игрока
-	plyBucket, ex := m.samples[playerID]
+
+	pending, ex := m.pending[playerID]
 	if !ex {
-		plyBucket = make(map[uuid.UUID]*Game)
-		m.samples[playerID] = plyBucket
+		pending = make(map[uuid.UUID]*GameSample)
+		m.pending[playerID] = pending
 	}
-	// Получаем баккит игры
-	game, ex := plyBucket[gameID]
+	game, ex := pending[gameID]
 	if !ex {
-		game = &Game{
-			Samples:   make([]*StateSample, 0),
-			CreatedAt: time.Now(),
+		game = &GameSample{States: make([]*StateSample, 0, 8)}
+		pending[gameID] = game
+	}
+	game.States = append(game.States, sample)
+}
+
+// FlushGame moves a completed game from pending into the reservoir using
+// reservoir sampling (Algorithm R).
+func (m *MemoryBuffer) FlushGame(playerID int, gameID uuid.UUID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pending := m.pending[playerID]
+	if pending == nil {
+		return
+	}
+	game, ex := pending[gameID]
+	if !ex {
+		return
+	}
+	delete(pending, gameID)
+
+	buf := m.reservoir[playerID]
+	n := m.totalSeen[playerID] + 1
+	m.totalSeen[playerID] = n
+
+	if len(buf) < m.maxSamples {
+		m.reservoir[playerID] = append(buf, game)
+	} else {
+		// Reservoir sampling: replace element j with probability maxSamples/n
+		j := m.rng.Int63n(n)
+		if j < int64(m.maxSamples) {
+			buf[j] = game
 		}
-		plyBucket[gameID] = game
-	}
-
-	// Добавляем в хранилище
-	game.Samples = append(game.Samples, sample)
-
-	// Проверяем необходимость очистки
-	if len(m.samples[playerID]) > m.maxSamples {
-		m.pruneOldSamples(playerID)
 	}
 }
 
-// GetSamples возвращает батч примеров для обучения
+// GetSamples returns a random batch of games for training
 func (m *MemoryBuffer) GetSamples(playerID int, batchSize int) []*GameSample {
-	m.samp_mu.RLock()
-	defer m.samp_mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	playerBucket := m.samples[playerID]
+	buf := m.reservoir[playerID]
+	if len(buf) == 0 {
+		return nil
+	}
+
 	samples := make([]*GameSample, 0, batchSize)
-
-	keys := make([]uuid.UUID, 0, len(playerBucket))
-	for u := range playerBucket {
-		keys = append(keys, u)
+	collected := 0
+	for collected < batchSize {
+		idx := m.rng.Intn(len(buf))
+		samples = append(samples, buf[idx])
+		collected += len(buf[idx].States)
 	}
-
-	collected := int(0)
-	for {
-		idx := m.rng.Int31n(int32(len(keys)))
-		key := keys[idx]
-
-		sample := playerBucket[key]
-		samples = append(samples, &GameSample{
-			States: sample.Samples,
-		})
-		collected += len(sample.Samples)
-		if collected >= batchSize {
-			break
-		}
-	}
-
 	return samples
 }
 
-// pruneOldSamples удаляет старые примеры
-func (m *MemoryBuffer) pruneOldSamples(playerID int) {
-	playerBucket := m.samples[playerID]
+// StrategyMemoryBuffer stores strategy samples for average strategy network training.
+// Uses the same reservoir sampling approach as MemoryBuffer.
+type StrategyMemoryBuffer struct {
+	mu         sync.Mutex
+	reservoir  map[int][]*StrategyGameSample
+	pending    map[int]map[uuid.UUID]*StrategyGameSample
+	maxSamples int
+	totalSeen  map[int]int64
+	rng        *rand.Rand
+}
 
-	type gameEntry struct {
-		id        uuid.UUID
-		createdAt time.Time
+func NewStrategyMemoryBuffer(maxSamples int) *StrategyMemoryBuffer {
+	return &StrategyMemoryBuffer{
+		reservoir:  make(map[int][]*StrategyGameSample),
+		pending:    make(map[int]map[uuid.UUID]*StrategyGameSample),
+		maxSamples: maxSamples,
+		totalSeen:  make(map[int]int64),
+		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
+func (m *StrategyMemoryBuffer) Count(playerID int) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.reservoir[playerID])
+}
+
+func (m *StrategyMemoryBuffer) AddSample(
+	playerID int,
+	gameID uuid.UUID,
+	state *CFRState,
+	strategy nolimitholdem.Strategy,
+	iteration int,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sample := &StrategySample{
+		GameState:  state.GameState.Clone(),
+		ActorState: state.ActorState.Clone(),
+		Strategy:   linq.CopyMap(strategy),
+		Iteration:  iteration,
 	}
 
-	entries := make([]gameEntry, 0, len(playerBucket))
-	for id, game := range playerBucket {
-		entries = append(entries, gameEntry{id, game.CreatedAt})
+	pending, ex := m.pending[playerID]
+	if !ex {
+		pending = make(map[uuid.UUID]*StrategyGameSample)
+		m.pending[playerID] = pending
+	}
+	game, ex := pending[gameID]
+	if !ex {
+		game = &StrategyGameSample{States: make([]*StrategySample, 0, 8)}
+		pending[gameID] = game
+	}
+	game.States = append(game.States, sample)
+}
+
+func (m *StrategyMemoryBuffer) FlushGame(playerID int, gameID uuid.UUID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pending := m.pending[playerID]
+	if pending == nil {
+		return
+	}
+	game, ex := pending[gameID]
+	if !ex {
+		return
+	}
+	delete(pending, gameID)
+
+	buf := m.reservoir[playerID]
+	n := m.totalSeen[playerID] + 1
+	m.totalSeen[playerID] = n
+
+	if len(buf) < m.maxSamples {
+		m.reservoir[playerID] = append(buf, game)
+	} else {
+		j := m.rng.Int63n(n)
+		if j < int64(m.maxSamples) {
+			buf[j] = game
+		}
+	}
+}
+
+func (m *StrategyMemoryBuffer) GetSamples(playerID int, batchSize int) []*StrategyGameSample {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	buf := m.reservoir[playerID]
+	if len(buf) == 0 {
+		return nil
 	}
 
-	// Сортируем по времени создания (от старых к новым)
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].createdAt.Before(entries[j].createdAt)
-	})
-
-	// Удаляем часть старых примеров
-	removeCount := int(float32(len(entries)) * m.pruneRatio)
-	for i := 0; i < removeCount; i++ {
-		delete(playerBucket, entries[i].id)
+	samples := make([]*StrategyGameSample, 0, batchSize)
+	collected := 0
+	for collected < batchSize {
+		idx := m.rng.Intn(len(buf))
+		samples = append(samples, buf[idx])
+		collected += len(buf[idx].States)
 	}
+	return samples
 }

@@ -26,18 +26,19 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(5_000_000, 0.2)
+	memoryBuffer, err := cfr.NewMemoryBuffer(1_000_000) //10M
 	if err != nil {
 		log.Fatal(err)
 	}
+	strategyBuffer := cfr.NewStrategyMemoryBuffer(1_000_000) //10M
 
 	err = memoryBuffer.Load()
 	if err != nil {
 		log.Printf("failed to load memory buffer: %v, creating new one", err)
 	}
 
-	actionsCache := cfr.NewActionsCache(5_000_000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("127.0.0.1:1338", 2000, 5000)
+	actionsCache := cfr.NewActionsCache(200_000, 0.1)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor("127.0.0.1:1338", 500, 10000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -48,13 +49,13 @@ func main() {
 	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
 
 	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 10000
-	const TRAIN_ITERS = 5
+	const TRAVERSE_ITERS = 20000
+	const TRAIN_ITERS = 200 //2000
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
 	// Create workers threads
-	execCh := make(chan StartupTask, TRAVERSE_ITERS)
+	execCh := make(chan StartupTask, 10)
 	var wg sync.WaitGroup
 	for tID := range TRAVERSE_ITERS {
 		go func() {
@@ -70,6 +71,7 @@ func main() {
 				game,
 				actor,
 				memoryBuffer,
+				strategyBuffer,
 				stats,
 			)
 			rngMut.Unlock()
@@ -88,7 +90,7 @@ func main() {
 	}
 	go func() {
 		// CFR iterations
-		for cfr_it := 3; cfr_it < CFR_ITERS; cfr_it++ {
+		for cfr_it := 0; cfr_it < CFR_ITERS; cfr_it++ {
 			cfr_it_elapsed := bench.MeasureExec(func() {
 				// Traverse
 				elapsed := bench.MeasureExec(func() {
@@ -117,38 +119,59 @@ func main() {
 				if err != nil {
 					log.Fatalf("failed to save networks: %v", err)
 				}
-				// Не делаем ресет, чтобы файнтьюнить сеть а не обучать сначала
-				/*
-					err = batchExecutor.Reset()
-					if err != nil {
-						log.Fatalf("failed to reset networks: %v", err)
-					}
-				*/
 				// Train
 				elapsed = bench.MeasureExec(func() {
 					for player_id := range 3 {
+						var lossSum float32
+						var lossCount int
 						for tIter := range TRAIN_ITERS {
 							batch := memoryBuffer.GetSamples(player_id, 10000)
 							if len(batch) == 0 {
 								continue
 							}
-							_, err := batchExecutor.Train(player_id, batch)
+							loss, err := batchExecutor.Train(player_id, batch)
 							if err != nil {
 								log.Fatalf("failed to train: %v", err)
 							}
+							lossSum += loss
+							lossCount++
 							if tIter%100 == 0 {
 								fmt.Printf("Training player %d: %d/%d\n", player_id, tIter, TRAIN_ITERS)
 							}
 						}
+						if lossCount > 0 {
+							log.Printf("[CFR_IT: %d] Advantage player %d avg loss: %.6f", cfr_it, player_id, lossSum/float32(lossCount))
+						}
 					}
 				})
-				log.Printf("[CFR_IT: %d] Train iteration finished in %s", cfr_it, elapsed)
+				log.Printf("[CFR_IT: %d] Advantage train finished in %s", cfr_it, elapsed)
 
-				// Saving memory buffers
-				err = memoryBuffer.Save()
-				if err != nil {
-					log.Printf("failed to save memory buffer: %v", err)
-				}
+				// Train average strategy network
+				elapsed = bench.MeasureExec(func() {
+					for player_id := range 3 {
+						var lossSum float32
+						var lossCount int
+						for tIter := range TRAIN_ITERS {
+							batch := strategyBuffer.GetSamples(player_id, 10000)
+							if len(batch) == 0 {
+								continue
+							}
+							loss, err := batchExecutor.TrainAvgStrategy(player_id, batch)
+							if err != nil {
+								log.Fatalf("failed to train avg strategy: %v", err)
+							}
+							lossSum += loss
+							lossCount++
+							if tIter%100 == 0 {
+								fmt.Printf("Training avg strategy player %d: %d/%d\n", player_id, tIter, TRAIN_ITERS)
+							}
+						}
+						if lossCount > 0 {
+							log.Printf("[CFR_IT: %d] AvgStrategy player %d avg loss: %.6f", cfr_it, player_id, lossSum/float32(lossCount))
+						}
+					}
+				})
+				log.Printf("[CFR_IT: %d] Avg strategy train finished in %s", cfr_it, elapsed)
 			})
 
 			log.Printf("CFR Iteration %d finished in %s", cfr_it, cfr_it_elapsed)

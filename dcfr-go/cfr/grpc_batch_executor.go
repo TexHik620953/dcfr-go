@@ -17,21 +17,18 @@ import (
 
 func cfrstate2proto(state *CFRState) *infra.CFRState {
 	s := &infra.CFRState{
-		GameState:    gamestate2proto(state.GameState),
-		LstmContextH: state.ActorState.LstmH,
-		LstmContextC: state.ActorState.LstmC,
+		GameState:     gamestate2proto(state.GameState),
+		LstmContextH: state.ActorState.LstmH, // reused for history context
 	}
 	return s
 }
 
 func gamestate2proto(state *nolimitholdem.GameState) *infra.GameState {
-	// Копирование мапы LegalActions
 	legalActions := make(map[int32]bool)
-	for k, _ := range state.LegalActions {
+	for k := range state.LegalActions {
 		legalActions[k] = true
 	}
 
-	// Копирование слайсов
 	publicCards := make([]int32, len(state.PublicCards))
 	for i, c := range state.PublicCards {
 		publicCards[i] = int32(c)
@@ -42,10 +39,9 @@ func gamestate2proto(state *nolimitholdem.GameState) *infra.GameState {
 		privateCards[i] = int32(c)
 	}
 
-	// Создание структуры GameState
 	s := &infra.GameState{
 		ActivePlayersMask: state.ActivePlayersMask,
-		PlayersPots:       state.PlayersPots, // если это не ссылочный тип
+		PlayersPots:       state.PlayersPots,
 		Stakes:            state.Stakes,
 		LegalActions:      legalActions,
 		Stage:             infra.GameStage(state.Stage),
@@ -55,18 +51,16 @@ func gamestate2proto(state *nolimitholdem.GameState) *infra.GameState {
 	}
 	return s
 }
+
 func proto2strat(probs *infra.ProbsResponse) *StrategyWithContext {
 	r := &StrategyWithContext{
-		Strategy: probs.ActionProbs,
-		LstmH:    make([]float32, len(probs.LstmContextH)),
-		LstmC:    make([]float32, len(probs.LstmContextC)),
+		Strategy:       probs.ActionProbs,
+		HistoryContext: make([]float32, len(probs.LstmContextH)),
 	}
-
-	copy(r.LstmH, probs.LstmContextH)
-	copy(r.LstmC, probs.LstmContextC)
-
+	copy(r.HistoryContext, probs.LstmContextH)
 	return r
 }
+
 func sample2proto(gameSample *GameSample) *infra.GameSample {
 	s := &infra.GameSample{
 		Samples: make([]*infra.StateSample, len(gameSample.States)),
@@ -75,12 +69,30 @@ func sample2proto(gameSample *GameSample) *infra.GameSample {
 		smpl := &infra.StateSample{
 			GameState:    gamestate2proto(sample.GameState),
 			LstmContextH: sample.ActorState.LstmH,
-			LstmContextC: sample.ActorState.LstmC,
 			Regrets:      map[int32]float32{},
 			Iteration:    int32(sample.Iteration),
 		}
 		for k, v := range sample.Regrets {
 			smpl.Regrets[k] = v
+		}
+		s.Samples[i] = smpl
+	}
+	return s
+}
+
+func strategySample2proto(gameSample *StrategyGameSample) *infra.StrategyGameSample {
+	s := &infra.StrategyGameSample{
+		Samples: make([]*infra.StrategySample, len(gameSample.States)),
+	}
+	for i, sample := range gameSample.States {
+		smpl := &infra.StrategySample{
+			GameState:    gamestate2proto(sample.GameState),
+			LstmContextH: sample.ActorState.LstmH,
+			Strategy:     map[int32]float32{},
+			Iteration:    int32(sample.Iteration),
+		}
+		for k, v := range sample.Strategy {
+			smpl.Strategy[k] = v
 		}
 		s.Samples[i] = smpl
 	}
@@ -109,7 +121,7 @@ type GRPCBatchExecutor struct {
 func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int) (*GRPCBatchExecutor, error) {
 	h := &GRPCBatchExecutor{
 		batchSize:    batchSize,
-		maxBatchSize: batchSize,
+		maxBatchSize: maxBatchSize,
 		requestsPool: defaultmap.New[int](func() Safemap[string, execution_unit] {
 			return safemap.New[string, execution_unit]()
 		}),
@@ -119,8 +131,8 @@ func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int) (*
 	h.conn, err = grpc.NewClient(serverAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallSendMsgSize(512*1024*1024), // 512MB для отправки
-			grpc.MaxCallRecvMsgSize(512*1024*1024), // 512MB для получения
+			grpc.MaxCallSendMsgSize(512*1024*1024),
+			grpc.MaxCallRecvMsgSize(512*1024*1024),
 		))
 	if err != nil {
 		return nil, err
@@ -135,7 +147,7 @@ func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int) (*
 func (h *GRPCBatchExecutor) watcher() {
 	for {
 		if time.Since(h.lastExec) > time.Millisecond*100 {
-			keys := make([]int, h.requestsPool.Count())
+			keys := make([]int, 0, h.requestsPool.Count())
 			h.requestsPool.Foreach(func(i int, s Safemap[string, execution_unit]) bool {
 				keys = append(keys, i)
 				return true
@@ -172,6 +184,23 @@ func (h *GRPCBatchExecutor) Train(learnerId int, samples []*GameSample) (float32
 	}
 	return resp.Loss, nil
 }
+
+func (h *GRPCBatchExecutor) TrainAvgStrategy(playerID int, samples []*StrategyGameSample) (float32, error) {
+	req := &infra.TrainAvgStrategyRequest{
+		CurrentPlayer: int32(playerID),
+		GameSamples:   make([]*infra.StrategyGameSample, len(samples)),
+	}
+	for i, sample := range samples {
+		req.GameSamples[i] = strategySample2proto(sample)
+	}
+
+	resp, err := h.actorClient.TrainAvgStrategy(context.Background(), req)
+	if err != nil {
+		return 0, err
+	}
+	return resp.Loss, nil
+}
+
 func (h *GRPCBatchExecutor) execute(playerId int) {
 	h.executionLock.Lock()
 	defer h.executionLock.Unlock()
@@ -209,7 +238,7 @@ func (h *GRPCBatchExecutor) execute(playerId int) {
 		key := keys[i]
 		unit, ex := rp.Get(key)
 		if !ex {
-			log.Fatal("this should not happens")
+			log.Fatal("this should not happen")
 		}
 		unit.respCh <- proto2strat(v)
 		close(unit.respCh)
