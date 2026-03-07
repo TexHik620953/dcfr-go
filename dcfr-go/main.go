@@ -115,11 +115,11 @@ func main() {
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(200_000)
+	memoryBuffer, err := cfr.NewMemoryBuffer(300_000)
 	if err != nil {
 		log.Fatal(err)
 	}
-	strategyBuffer := cfr.NewStrategyMemoryBuffer(200_000)
+	strategyBuffer := cfr.NewStrategyMemoryBuffer(300_000)
 
 	err = memoryBuffer.Load()
 	if err != nil {
@@ -144,8 +144,8 @@ func main() {
 	benchStates := buildBenchmarkStates()
 
 	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 10000
-	const TRAIN_ITERS = 300
+	const TRAVERSE_ITERS = 20000
+	const TRAIN_ITERS = 400
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx

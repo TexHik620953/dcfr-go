@@ -87,7 +87,8 @@ def compute_card_features(private_cards, public_cards, device):
 
     max_suit_count = suit_counts.max(dim=1).values
     has_flush = (max_suit_count >= 5).float().unsqueeze(1)
-    has_flush_draw = ((max_suit_count == 4) & (num_public.squeeze(1) * 5 < 5)).float().unsqueeze(1)
+    # Flush draw: 4 of same suit and not yet river (fewer than 5 public cards)
+    has_flush_draw = ((max_suit_count == 4) & (pub_mask.sum(dim=1) < 5)).float().unsqueeze(1)
     features.extend([has_flush, has_flush_draw])
 
     # 14. Straight potential (simplified: count unique ranks in consecutive windows of 5)
@@ -112,17 +113,20 @@ def compute_card_features(private_cards, public_cards, device):
     features.append(board_pairs_hand)
 
     # 16. Overcards (private cards higher than all board cards)
-    if pub_mask.any():
-        max_board_rank = (pub_ranks * pub_mask.long()).max(dim=1).values  # [batch]
-        overcards = ((priv_ranks > max_board_rank.unsqueeze(1)) & (pub_mask.any(dim=1, keepdim=True))).sum(dim=1).float().unsqueeze(1) / 2.0
-    else:
-        overcards = torch.zeros(batch, 1, device=device)
+    has_board = pub_mask.any(dim=1)  # [batch] — per-sample check
+    # For preflop (no board), set max_board_rank very high so overcards = 0
+    max_board_rank = torch.where(
+        has_board,
+        (pub_ranks * pub_mask.long()).max(dim=1).values,
+        torch.tensor(12, device=device)  # higher than any rank
+    )
+    overcards = (priv_ranks > max_board_rank.unsqueeze(1)).sum(dim=1).float().unsqueeze(1) / 2.0
     features.append(overcards)
 
     return torch.cat(features, dim=1)  # [batch, 18]
 
 
-CARD_FEATURE_DIM = 18
+CARD_FEATURE_DIM = 17
 
 
 class CardAbstractionEncoder(nn.Module):

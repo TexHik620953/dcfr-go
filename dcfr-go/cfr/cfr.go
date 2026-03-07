@@ -36,6 +36,9 @@ type CFR struct {
 	stats *CFRStats
 
 	rng *rand.Rand
+
+	// Pruning: skip actions with probability below this threshold for learner
+	pruneThreshold float32
 }
 type CFRStats struct {
 	NodesVisited   atomic.Int32
@@ -50,6 +53,7 @@ func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuf
 		StrategyMemory: strategyMemory,
 		stats:          stats,
 		rng:            rand.New(rand.NewSource(seed)),
+		pruneThreshold: 0.03,
 	}
 
 	h.coreGame.Reset()
@@ -140,8 +144,21 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 	// Payoffs for every action
 	actionRawPayoffs := make(map[nolimitholdem.Action]float32)
 
-	// Iterate over all possible actions
+	// Iterate over actions, pruning low-probability ones
+	// Count how many actions pass threshold — always explore at least 2
+	aboveThreshold := 0
+	for _, actProb := range actionContext.Strategy {
+		if actProb >= h.pruneThreshold {
+			aboveThreshold++
+		}
+	}
+	canPrune := aboveThreshold >= 2
+
 	for action, actProb := range actionContext.Strategy {
+		if canPrune && actProb < h.pruneThreshold {
+			continue
+		}
+
 		h.coreGame.Step(action)
 		childPayoffs, err := h.traverser(learnerId, cfr_it, gameID, playersState.Clone(), depth+1)
 		if err != nil {
@@ -149,19 +166,22 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 		}
 		h.coreGame.StepBack()
 
-		// Сохраняем результаты
 		actionRawPayoffs[action] = childPayoffs[learnerId]
 
-		// Взвешенно добавляем в общий EV
 		for i, val := range childPayoffs {
 			totalPayoffs[i] += val * actProb
 		}
 	}
 
-	// CFR HERE
+	// CFR: compute regrets only for explored actions
 	regrets := make(nolimitholdem.Strategy)
-	for action, rawPayoff := range actionRawPayoffs {
-		regrets[action] = rawPayoff - totalPayoffs[learnerId]
+	for action := range actionContext.Strategy {
+		if payoff, explored := actionRawPayoffs[action]; explored {
+			regrets[action] = payoff - totalPayoffs[learnerId]
+		} else {
+			// Pruned action — assign zero regret
+			regrets[action] = 0
+		}
 	}
 	h.Memory.AddSample(learnerId, gameID, &CFRState{
 		GameState:  state,
