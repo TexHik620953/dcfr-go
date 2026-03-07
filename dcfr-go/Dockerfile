@@ -1,22 +1,16 @@
-FROM golang AS builder
+FROM golang:1.24 AS builder
 
-ENV CGO_ENABLED 0
-ENV GOOS linux
-
-RUN apt update
-RUN apt install tzdata
-RUN apt install git
+ENV CGO_ENABLED=0
+ENV GOOS=linux
 
 WORKDIR /build
 
-ADD go.mod .
-ADD go.sum .
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN go build -ldflags="-s -w" -o /app/exec ./main.go
 
-FROM alpine
-
+FROM alpine:3.19
 
 WORKDIR /app
 

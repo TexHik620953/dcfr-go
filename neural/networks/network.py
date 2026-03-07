@@ -184,11 +184,9 @@ class DeepCFRModel(nn.Module):
             'step': self.step,
         }, path)
 
-    def load(self, name=None):
-        if name is not None:
-            dat = torch.load(f"./checkpoints/{self.name}-{name}.pth", weights_only=False)
-        else:
-            dat = torch.load(f"./checkpoints/{self.name}.pth", weights_only=False)
+    def load(self, name=None, map_location=None):
+        path = f"./checkpoints/{self.name}-{name}.pth" if name is not None else f"./checkpoints/{self.name}.pth"
+        dat = torch.load(path, weights_only=False, map_location=map_location)
         self.load_state_dict(dat['net'])
         self.optimizer.load_state_dict(dat['opt'])
         if 'step' in dat:
@@ -297,11 +295,9 @@ class AvgStrategyModel(nn.Module):
             'step': self.step,
         }, path)
 
-    def load(self, name=None):
-        if name is not None:
-            dat = torch.load(f"./checkpoints/{self.name}-{name}.pth", weights_only=False)
-        else:
-            dat = torch.load(f"./checkpoints/{self.name}.pth", weights_only=False)
+    def load(self, name=None, map_location=None):
+        path = f"./checkpoints/{self.name}-{name}.pth" if name is not None else f"./checkpoints/{self.name}.pth"
+        dat = torch.load(path, weights_only=False, map_location=map_location)
         self.load_state_dict(dat['net'])
         self.optimizer.load_state_dict(dat['opt'])
         if 'step' in dat:

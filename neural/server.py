@@ -23,7 +23,7 @@ print("Launching on: ", device)
 
 # DCFR weighting parameter
 DCFR_ALPHA = 1.5
-checkpoint = "1772876231"
+checkpoint = "1772885356"
 
 # Create player networks
 ply_networks = []
@@ -32,26 +32,14 @@ for i in range(3):
     net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
     ply_networks.append(net)
 
-ply_networks[0].load(checkpoint)
-ply_networks[1].load(checkpoint)
-ply_networks[2].load(checkpoint)
-'''
-# Try to load initial network
-try:
-    ply_networks[0].load("initial")
-    print("Initial model loaded")
-except:
-    print("Initial model not found, initializing...")
-    ply_networks[0].save("initial")
+# Try to load checkpoint
+for net in ply_networks:
+    try:
+        net.load(checkpoint, map_location=device)
+        print(f"Loaded {net.name} from checkpoint {checkpoint}")
+    except Exception as e:
+        print(f"Could not load {net.name} checkpoint: {e}, using fresh weights")
 
-initial_state = ply_networks[0].state_dict()
-initial_opt_state = ply_networks[0].optimizer.state_dict()
-
-for net in ply_networks[1:]:
-    net.load_state_dict(initial_state)
-    net.optimizer.load_state_dict(initial_opt_state)
-print("Networks created")
-'''
 # Create average strategy networks (one per player)
 avg_networks = []
 for i in range(3):
@@ -60,9 +48,12 @@ for i in range(3):
     avg_networks.append(net)
 print("Avg strategy networks created")
 
-avg_networks[0].load(checkpoint)
-avg_networks[1].load(checkpoint)
-avg_networks[2].load(checkpoint)
+for net in avg_networks:
+    try:
+        net.load(checkpoint, map_location=device)
+        print(f"Loaded {net.name} from checkpoint {checkpoint}")
+    except Exception as e:
+        print(f"Could not load {net.name} checkpoint: {e}, using fresh weights")
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 

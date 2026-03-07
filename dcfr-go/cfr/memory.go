@@ -73,7 +73,8 @@ func NewMemoryBuffer(maxSamples int) (*MemoryBuffer, error) {
 }
 
 func (m *MemoryBuffer) Save() error {
-	f, err := os.Create("bufferdata.json")
+	os.MkdirAll("data", 0755)
+	f, err := os.Create("data/bufferdata.json")
 	if err != nil {
 		return err
 	}
@@ -82,7 +83,7 @@ func (m *MemoryBuffer) Save() error {
 }
 
 func (m *MemoryBuffer) Load() error {
-	f, err := os.Open("bufferdata.json")
+	f, err := os.Open("data/bufferdata.json")
 	if err != nil {
 		return err
 	}

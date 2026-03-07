@@ -1,14 +1,10 @@
-FROM pytorch/pytorch:latest
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . /app
-
-# Install any needed packages specified in requirements.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Run your Python script when the container launches
+COPY . .
 
 CMD ["python", "-u", "server.py"]

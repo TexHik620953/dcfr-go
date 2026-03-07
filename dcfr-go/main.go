@@ -126,8 +126,13 @@ func main() {
 		log.Printf("failed to load memory buffer: %v, creating new one", err)
 	}
 
+	neuralAddr := os.Getenv("NEURAL_ADDR")
+	if neuralAddr == "" {
+		neuralAddr = "127.0.0.1:1338"
+	}
+
 	actionsCache := cfr.NewActionsCache(200_000, 0.1)
-	batchExecutor, err := cfr.NewGrpcBatchExecutor("127.0.0.1:1338", 500, 10000)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor(neuralAddr, 500, 1000)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -140,7 +145,7 @@ func main() {
 
 	const CFR_ITERS = 1000
 	const TRAVERSE_ITERS = 5000
-	const TRAIN_ITERS = 30 //2000
+	const TRAIN_ITERS = 60 //2000
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
@@ -215,7 +220,7 @@ func main() {
 						var lossSum float32
 						var lossCount int
 						for tIter := range TRAIN_ITERS {
-							batch := memoryBuffer.GetSamples(player_id, 10000)
+							batch := memoryBuffer.GetSamples(player_id, 5000)
 							if len(batch) == 0 {
 								continue
 							}

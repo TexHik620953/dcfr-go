@@ -1,46 +1,42 @@
 services:
-  pg-general:
-    container_name: pg
-    hostname: pg
-    image: postgres:15
-    volumes:
-      - pg_volume:/var/lib/postgresql/data:z
-    environment:
-      POSTGRES_PASSWORD: HermanFuLLer
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
+  neural:
+    hostname: neural
+    build:
+      context: ./neural
+      dockerfile: Dockerfile
     ports:
-      - 5432:5432
+      - "1338:1338"
+    volumes:
+      - ./neural/checkpoints:/app/checkpoints
+      - ./neural/tensorboard:/app/tensorboard
     logging:
-        driver: "json-file"
-        options:
-          max-size: "1m"
-          max-file: "1"
-  #application:
-  #  build: ./dcfr-go
-  #  depends_on:
-  #    - neural
-  #    - pg-general
-  #neural:
-  #  hostname: neural
-  #  build:
-  #    context: ./neural
-  #    dockerfile: Dockerfile
-  #  ports:
-  #    - 1338:1338
-  #  volumes:
-  #    - ./data/checkpoints:/app/checkpoints
-  #    - ./data/tensorboard:/app/tensorboard
-  #tensorboard:
-  # image: tensorflow/tensorflow:latest  # Official TensorBoard image
-  # ports:
-  #   - "6006:6006"  # Expose TensorBoard port
-  # volumes:
-  #   - ./data/tensorboard:/data/logs  # Mount the logs directory
-  # command: tensorboard --logdir=/data/logs --host=0.0.0.0
-  # depends_on:
-  #   - neural
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-volumes:
-    pg_volume:
-        driver: local
+  application:
+    build:
+      context: ./dcfr-go
+      dockerfile: Dockerfile
+    environment:
+      - NEURAL_ADDR=neural:1338
+    depends_on:
+      - neural
+    volumes:
+      - ./data/go:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    ports:
+      - "6006:6006"
+    volumes:
+      - ./neural/tensorboard:/data/logs
+    command: tensorboard --logdir=/data/logs --host=0.0.0.0
+    depends_on:
+      - neural
