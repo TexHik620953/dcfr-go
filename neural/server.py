@@ -23,13 +23,14 @@ print("Launching on: ", device)
 
 # DCFR weighting parameter
 DCFR_ALPHA = 1.5
+HIDDEN_DIM = 256
 checkpoint = "1772885356"
 
 # Create player networks
 ply_networks = []
 for i in range(3):
     print("Creating: ", i, " network")
-    net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
+    net = DeepCFRModel(f"ply{i}", lr=1e-3, hidden_dim=HIDDEN_DIM).to(device)
     ply_networks.append(net)
 
 # Try to load checkpoint
@@ -44,7 +45,7 @@ for net in ply_networks:
 avg_networks = []
 for i in range(3):
     print("Creating avg strategy network: ", i)
-    net = AvgStrategyModel(f"avg{i}", lr=1e-3).to(device)
+    net = AvgStrategyModel(f"avg{i}", lr=1e-3, hidden_dim=HIDDEN_DIM).to(device)
     avg_networks.append(net)
 print("Avg strategy networks created")
 
