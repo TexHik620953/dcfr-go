@@ -159,13 +159,17 @@ class DeepCFRModel(nn.Module):
         stages = stage.squeeze(1)
         logits = self.get_action_logits(raw_features, new_context, stages)
 
+        # Mask illegal actions before softmax to avoid numerical issues
+        logits = logits - logits.max(dim=1, keepdim=True).values  # stabilize softmax
+        logits = logits.masked_fill(actions_mask == 0, -1e9)
         probs = torch.softmax(logits, dim=1)
-        probs = probs * actions_mask
 
-        if probs.sum().item() < 1e-8:
-            probs = probs + actions_mask
+        # Fallback: if any row is all zeros (shouldn't happen), use uniform over legal actions
+        bad_rows = probs.sum(dim=1) < 1e-8
+        if bad_rows.any():
+            probs[bad_rows] = actions_mask[bad_rows]
+            probs[bad_rows] = probs[bad_rows] / probs[bad_rows].sum(dim=1, keepdim=True)
 
-        probs = probs / probs.sum(dim=1, keepdim=True)
         return probs, new_context
 
     def save(self, name=None):

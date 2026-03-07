@@ -100,6 +100,9 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 	// Get previous context for player
 	actorState := playersState.At(currentPlayer)
 
+	// Save prev context BEFORE inference (for training samples)
+	prevActorState := actorState.Clone()
+
 	actionContext, err := h.actor.GetProbs(&CFRState{
 		GameState:  state,
 		ActorState: actorState,
@@ -107,13 +110,13 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 	if err != nil {
 		return nil, err
 	}
-	// Store new context for player (transformer history features)
+	// Store new context for player (for next step's inference)
 	actorState.LstmH = actionContext.HistoryContext
 
-	// Collect strategy sample for average strategy network (all players)
+	// Collect strategy sample with PREV context (so train can reproduce the context update)
 	h.StrategyMemory.AddSample(currentPlayer, gameID, &CFRState{
 		GameState:  state,
-		ActorState: actorState,
+		ActorState: prevActorState,
 	}, actionContext.Strategy, cfr_it)
 
 	// For opponent, use only one action
@@ -162,7 +165,7 @@ func (h *CFR) traverser(learnerId int, cfr_it int, gameID uuid.UUID, playersStat
 	}
 	h.Memory.AddSample(learnerId, gameID, &CFRState{
 		GameState:  state,
-		ActorState: actorState,
+		ActorState: prevActorState,
 	}, regrets, cfr_it)
 
 	return totalPayoffs, nil

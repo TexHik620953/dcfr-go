@@ -1,5 +1,6 @@
 # python -m grpc_tools.protoc -I../dcfr-go/proto/infra/ --python_out=./ --pyi_out=./ --grpc_python_out=./ ../dcfr-go/proto/infra/actor.proto
 # docker run -d -v /run/media/texhik/WORK/CODING/NeuralNetworks/dcfr-go/neural/tensorboard/:/app/runs/:ro -p 6006:6006 --name "my_tensorboard" schafo/tensorboard:latest --logdir=/app/runs --host 0.0.0.0
+import time
 
 print("Init")
 import grpc
@@ -22,6 +23,7 @@ print("Launching on: ", device)
 
 # DCFR weighting parameter
 DCFR_ALPHA = 1.5
+checkpoint = "1772876231"
 
 # Create player networks
 ply_networks = []
@@ -30,6 +32,10 @@ for i in range(3):
     net = DeepCFRModel(f"ply{i}", lr=1e-3).to(device)
     ply_networks.append(net)
 
+ply_networks[0].load(checkpoint)
+ply_networks[1].load(checkpoint)
+ply_networks[2].load(checkpoint)
+'''
 # Try to load initial network
 try:
     ply_networks[0].load("initial")
@@ -45,7 +51,7 @@ for net in ply_networks[1:]:
     net.load_state_dict(initial_state)
     net.optimizer.load_state_dict(initial_opt_state)
 print("Networks created")
-
+'''
 # Create average strategy networks (one per player)
 avg_networks = []
 for i in range(3):
@@ -53,6 +59,10 @@ for i in range(3):
     net = AvgStrategyModel(f"avg{i}", lr=1e-3).to(device)
     avg_networks.append(net)
 print("Avg strategy networks created")
+
+avg_networks[0].load(checkpoint)
+avg_networks[1].load(checkpoint)
+avg_networks[2].load(checkpoint)
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 
@@ -90,21 +100,12 @@ def train_net(network, game_samples):
 
     logits = network.get_action_logits(features, new_context, stages)
 
-    # === BATCH-LEVEL regret normalization ===
-    regret_mean = regrets.mean()
-    regret_std = regrets.std().clamp(min=1e-8)
-    normalized_regrets = (regrets - regret_mean) / regret_std
-
     # === DCFR weighting: w_t = t^alpha ===
     dcfr_weights = (iterations + 1).pow(DCFR_ALPHA)
     dcfr_weights = dcfr_weights / dcfr_weights.sum()
 
-    # MSE loss with DCFR weighting
-    loss = ((torch.square(logits - normalized_regrets)).sum(dim=1) * dcfr_weights).sum()
-
-    probs = F.softmax(logits, dim=1)
-    entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=1).mean()
-    loss = loss - 0.005 * entropy
+    # MSE loss with DCFR weighting (no regret normalization — preserves per-state signal)
+    loss = ((torch.square(logits - regrets)).sum(dim=1) * dcfr_weights).sum()
 
     loss.backward()
     torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
@@ -117,7 +118,6 @@ def train_net(network, game_samples):
     if network.step % 2 == 0:
         step = network.step
         tensorboard.add_scalar(f"{network.name}/total_loss", total_loss, step)
-        tensorboard.add_scalar(f"{network.name}/entropy", entropy.item(), step)
         tensorboard.add_scalar(f"{network.name}/learning_rate",
                                network.optimizer.param_groups[0]['lr'], step)
 
@@ -256,18 +256,14 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
 
     def Save(self, request, context):
         print("Saving networks")
+        tt = int(time.time())
         for net in ply_networks:
-            net.save(datetime.datetime.now())
+            net.save(tt)
         for net in avg_networks:
-            net.save(datetime.datetime.now())
+            net.save(tt)
         return actor_pb2.Empty()
 
     def Reset(self, request, context):
-        global initial_state
-        print("Resetting networks")
-        for net in ply_networks:
-            net.load_state_dict(initial_state)
-            net.optimizer.load_state_dict(initial_opt_state)
         return actor_pb2.Empty()
 
 def serve():

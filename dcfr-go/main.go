@@ -21,16 +21,105 @@ type StartupTask struct {
 	CfrIter  int
 }
 
+type benchmarkState struct {
+	name  string
+	state *cfr.CFRState
+}
+
+// buildBenchmarkStates creates fixed game states to monitor strategy evolution.
+func buildBenchmarkStates() []benchmarkState {
+	allActions := map[nolimitholdem.Action]struct{}{
+		nolimitholdem.ACTION_FOLD:            {},
+		nolimitholdem.ACTION_CHECK_CALL:      {},
+		nolimitholdem.ACTION_RAISE_QUARTER:   {},
+		nolimitholdem.ACTION_RAISE_THIRD:     {},
+		nolimitholdem.ACTION_RAISE_HALFPOT:   {},
+		nolimitholdem.ACTION_RAISE_TWOTHIRDS: {},
+		nolimitholdem.ACTION_RAISE_POT:       {},
+		nolimitholdem.ACTION_RAISE_1_5X:      {},
+		nolimitholdem.ACTION_RAISE_2X:        {},
+		nolimitholdem.ACTION_ALL_IN:          {},
+	}
+
+	makeState := func(name string, private [2]nolimitholdem.Card, public []nolimitholdem.Card, stage nolimitholdem.GameStage, pots, stakes [3]int32) benchmarkState {
+		return benchmarkState{
+			name: name,
+			state: &cfr.CFRState{
+				GameState: &nolimitholdem.GameState{
+					PrivateCards:      private[:],
+					PublicCards:       public,
+					Stage:             stage,
+					CurrentPlayer:     0,
+					ActivePlayersMask: []int32{1, 1, 1},
+					PlayersPots:       pots[:],
+					Stakes:            stakes[:],
+					LegalActions:      allActions,
+				},
+				ActorState: &cfr.ActorState{},
+			},
+		}
+	}
+
+	// rank: 0=2, 1=3, ..., 8=T, 9=J, 10=Q, 11=K, 12=A
+	// card = suit*13 + rank
+	return []benchmarkState{
+		// Preflop: AA (Ah As) — should raise/all-in heavily
+		makeState("AA_preflop",
+			[2]nolimitholdem.Card{nolimitholdem.NewCard(12, 0), nolimitholdem.NewCard(12, 1)},
+			nil, nolimitholdem.STAGE_PREFLOP,
+			[3]int32{0, 5, 10}, [3]int32{70, 65, 60}),
+
+		// Preflop: 72o (7h 2s) — should fold most of the time
+		makeState("72o_preflop",
+			[2]nolimitholdem.Card{nolimitholdem.NewCard(0, 1), nolimitholdem.NewCard(5, 0)},
+			nil, nolimitholdem.STAGE_PREFLOP,
+			[3]int32{0, 5, 10}, [3]int32{70, 65, 60}),
+
+		// Flop: KK with K on board (set) — should bet/raise
+		makeState("KK_set_flop",
+			[2]nolimitholdem.Card{nolimitholdem.NewCard(11, 0), nolimitholdem.NewCard(11, 1)},
+			[]nolimitholdem.Card{nolimitholdem.NewCard(11, 2), nolimitholdem.NewCard(6, 0), nolimitholdem.NewCard(2, 1)},
+			nolimitholdem.STAGE_FLOP,
+			[3]int32{20, 20, 20}, [3]int32{50, 50, 50}),
+
+		// River: low cards, missed draw — should check/fold
+		makeState("missed_river",
+			[2]nolimitholdem.Card{nolimitholdem.NewCard(5, 0), nolimitholdem.NewCard(4, 0)},
+			[]nolimitholdem.Card{
+				nolimitholdem.NewCard(11, 1), nolimitholdem.NewCard(10, 2),
+				nolimitholdem.NewCard(8, 3), nolimitholdem.NewCard(1, 1),
+				nolimitholdem.NewCard(0, 2),
+			},
+			nolimitholdem.STAGE_RIVER,
+			[3]int32{30, 30, 30}, [3]int32{40, 40, 40}),
+	}
+}
+
+func logBenchmarkStrategies(cfr_it int, states []benchmarkState, executor *cfr.GRPCBatchExecutor) {
+	for _, bs := range states {
+		ch := executor.EnqueueGetStrategy(bs.state)
+		result := <-ch
+
+		probs := make([]string, 0, len(result.Strategy))
+		for action, prob := range result.Strategy {
+			if prob > 0.01 {
+				probs = append(probs, fmt.Sprintf("%s=%.2f", nolimitholdem.Action2string[action], prob))
+			}
+		}
+		log.Printf("[CFR_IT: %d] BENCH %s: %v", cfr_it, bs.name, probs)
+	}
+}
+
 func main() {
 
 	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
 	var rngMut sync.Mutex
 
-	memoryBuffer, err := cfr.NewMemoryBuffer(1_000_000) //10M
+	memoryBuffer, err := cfr.NewMemoryBuffer(30_000) //10M
 	if err != nil {
 		log.Fatal(err)
 	}
-	strategyBuffer := cfr.NewStrategyMemoryBuffer(1_000_000) //10M
+	strategyBuffer := cfr.NewStrategyMemoryBuffer(30_000) //10M
 
 	err = memoryBuffer.Load()
 	if err != nil {
@@ -47,10 +136,11 @@ func main() {
 		log.Fatal(err)
 	}
 	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
+	benchStates := buildBenchmarkStates()
 
 	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 20000
-	const TRAIN_ITERS = 200 //2000
+	const TRAVERSE_ITERS = 5000
+	const TRAIN_ITERS = 30 //2000
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
@@ -172,6 +262,9 @@ func main() {
 					}
 				})
 				log.Printf("[CFR_IT: %d] Avg strategy train finished in %s", cfr_it, elapsed)
+
+				// Log benchmark strategies
+				logBenchmarkStrategies(cfr_it, benchStates, batchExecutor)
 			})
 
 			log.Printf("CFR Iteration %d finished in %s", cfr_it, cfr_it_elapsed)
