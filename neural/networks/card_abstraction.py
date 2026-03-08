@@ -65,7 +65,7 @@ def compute_card_features(private_cards, public_cards, device):
     rank_counts = torch.zeros(batch, 13, device=device)
     for i in range(7):
         valid = all_mask[:, i]
-        rank_idx = all_ranks[:, i]
+        rank_idx = all_ranks[:, i].long()
         rank_counts.scatter_add_(1, rank_idx.unsqueeze(1), valid.float().unsqueeze(1))
 
     has_pair = (rank_counts >= 2).any(dim=1).float().unsqueeze(1)
@@ -82,7 +82,7 @@ def compute_card_features(private_cards, public_cards, device):
     suit_counts = torch.zeros(batch, 4, device=device)
     for i in range(7):
         valid = all_mask[:, i]
-        suit_idx = all_suits[:, i]
+        suit_idx = all_suits[:, i].long()
         suit_counts.scatter_add_(1, suit_idx.unsqueeze(1), valid.float().unsqueeze(1))
 
     max_suit_count = suit_counts.max(dim=1).values
