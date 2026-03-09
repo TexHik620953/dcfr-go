@@ -155,13 +155,17 @@ func main() {
 	var rngMut sync.Mutex
 
 	os.MkdirAll("data", 0755)
-	memoryBuffer, err := cfr.NewSQLiteMemoryBuffer("/run/media/texhik/584fab39-e4ad-4230-845c-e0e66b5aaecc/@home/texhik/temp/regret_buffer.db", 1_500_000)
+	tempDir := os.Getenv("TEMP_DIR")
+	if tempDir == "" {
+		log.Fatal("TEMP_DIR environment variable is not set")
+	}
+	memoryBuffer, err := cfr.NewSQLiteMemoryBuffer(filepath.Join(tempDir, "regret_buffer.db"), 1_500_000)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer memoryBuffer.Close()
 
-	strategyBuffer, err := cfr.NewSQLiteStrategyMemoryBuffer("/run/media/texhik/584fab39-e4ad-4230-845c-e0e66b5aaecc/@home/texhik/temp/strategy_buffer.db", 1_500_000)
+	strategyBuffer, err := cfr.NewSQLiteStrategyMemoryBuffer(filepath.Join(tempDir, "strategy_buffer.db"), 1_500_000)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -174,7 +178,7 @@ func main() {
 		strategyBuffer.Count(0), strategyBuffer.Count(1), strategyBuffer.Count(2),
 	)
 
-	dataDir := filepath.Dir("/run/media/texhik/584fab39-e4ad-4230-845c-e0e66b5aaecc/@home/texhik/temp/")
+	dataDir := tempDir
 	cp := loadCheckpoint(dataDir)
 	log.Printf("Loaded checkpoint: cfr_iteration=%d", cp.CfrIteration)
 
@@ -275,8 +279,8 @@ func main() {
 						}
 					}()
 
-					for player_id := range 3 {
-						for range TRAVERSE_ITERS {
+					for range TRAVERSE_ITERS {
+						for player_id := range 3 {
 							wg.Add(1)
 							execCh <- StartupTask{
 								PlayerId: player_id,
