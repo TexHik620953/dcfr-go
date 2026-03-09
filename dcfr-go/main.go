@@ -20,8 +20,15 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+)
 
-	"github.com/schollz/progressbar/v3"
+const (
+	TRAVERSE_THREADS = 45000
+	CFR_ITERS        = 1000
+	TRAVERSE_ITERS   = 15000
+	ADV_TRAIN_ITERS  = 150
+	AVG_TRAIN_ITERS  = 20
+	BATCH_SIZE       = 6000
 )
 
 type StartupTask struct {
@@ -29,12 +36,35 @@ type StartupTask struct {
 	CfrIter  int
 }
 
+type Checkpoint struct {
+	CfrIteration int `json:"cfr_iteration"`
+}
+
+func loadCheckpoint(dir string) Checkpoint {
+	data, err := os.ReadFile(filepath.Join(dir, "checkpoint.json"))
+	if err != nil {
+		return Checkpoint{CfrIteration: 0}
+	}
+	var cp Checkpoint
+	if err := json.Unmarshal(data, &cp); err != nil {
+		return Checkpoint{CfrIteration: 0}
+	}
+	return cp
+}
+
+func saveCheckpoint(dir string, cp Checkpoint) error {
+	data, err := json.Marshal(cp)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "checkpoint.json"), data, 0644)
+}
+
 type benchmarkState struct {
 	name  string
 	state *cfr.CFRState
 }
 
-// buildBenchmarkStates creates fixed game states to monitor strategy evolution.
 func buildBenchmarkStates() []benchmarkState {
 	allActions := map[nolimitholdem.Action]struct{}{
 		nolimitholdem.ACTION_FOLD:            {},
@@ -71,26 +101,22 @@ func buildBenchmarkStates() []benchmarkState {
 	// rank: 0=2, 1=3, ..., 8=T, 9=J, 10=Q, 11=K, 12=A
 	// card = suit*13 + rank
 	return []benchmarkState{
-		// Preflop: AA (Ah As) — should raise/all-in heavily
 		makeState("AA_preflop",
 			[2]nolimitholdem.Card{nolimitholdem.NewCard(12, 0), nolimitholdem.NewCard(12, 1)},
 			nil, nolimitholdem.STAGE_PREFLOP,
 			[3]int32{0, 5, 10}, [3]int32{70, 65, 60}),
 
-		// Preflop: 72o (7h 2s) — should fold most of the time
 		makeState("72o_preflop",
 			[2]nolimitholdem.Card{nolimitholdem.NewCard(0, 1), nolimitholdem.NewCard(5, 0)},
 			nil, nolimitholdem.STAGE_PREFLOP,
 			[3]int32{0, 5, 10}, [3]int32{70, 65, 60}),
 
-		// Flop: KK with K on board (set) — should bet/raise
 		makeState("KK_set_flop",
 			[2]nolimitholdem.Card{nolimitholdem.NewCard(11, 0), nolimitholdem.NewCard(11, 1)},
 			[]nolimitholdem.Card{nolimitholdem.NewCard(11, 2), nolimitholdem.NewCard(6, 0), nolimitholdem.NewCard(2, 1)},
 			nolimitholdem.STAGE_FLOP,
 			[3]int32{20, 20, 20}, [3]int32{50, 50, 50}),
 
-		// River: low cards, missed draw — should check/fold
 		makeState("missed_river",
 			[2]nolimitholdem.Card{nolimitholdem.NewCard(5, 0), nolimitholdem.NewCard(4, 0)},
 			[]nolimitholdem.Card{
@@ -103,43 +129,109 @@ func buildBenchmarkStates() []benchmarkState {
 	}
 }
 
-type Checkpoint struct {
-	CfrIteration int `json:"cfr_iteration"`
-}
-
-func loadCheckpoint(dir string) Checkpoint {
-	data, err := os.ReadFile(filepath.Join(dir, "checkpoint.json"))
-	if err != nil {
-		return Checkpoint{CfrIteration: 0}
-	}
-	var cp Checkpoint
-	if err := json.Unmarshal(data, &cp); err != nil {
-		return Checkpoint{CfrIteration: 0}
-	}
-	return cp
-}
-
-func saveCheckpoint(dir string, cp Checkpoint) error {
-	data, err := json.Marshal(cp)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "checkpoint.json"), data, 0644)
-}
-
-func logBenchmarkStrategies(cfr_it int, states []benchmarkState, executor *cfr.GRPCBatchExecutor) {
+func logBenchmarkStrategies(cfrIt int, states []benchmarkState, executor *cfr.GRPCBatchExecutor) {
 	for _, bs := range states {
-		ch := executor.EnqueueGetStrategy(bs.state)
-		result := <-ch
-
+		result := <-executor.EnqueueGetStrategy(bs.state)
 		probs := make([]string, 0, len(result.Strategy))
 		for action, prob := range result.Strategy {
 			if prob > 0.01 {
 				probs = append(probs, fmt.Sprintf("%s=%.2f", nolimitholdem.Action2string[action], prob))
 			}
 		}
-		log.Printf("[CFR_IT: %d] BENCH %s: %v", cfr_it, bs.name, probs)
+		log.Printf("[CFR %d] BENCH %s: %v", cfrIt, bs.name, probs)
 	}
+}
+
+// trainParallel runs trainFn for each of 3 players in parallel and logs avg loss.
+func trainParallel(cfrIt int, label string, iters int, trainFn func(pid int) float32) time.Duration {
+	return bench.MeasureExec(func() {
+		var wg sync.WaitGroup
+		var loss [3]float64
+		var count [3]int
+		for pid := range 3 {
+			wg.Add(1)
+			go func(pid int) {
+				defer wg.Done()
+				for range iters {
+					l := trainFn(pid)
+					if l >= 0 {
+						loss[pid] += float64(l)
+						count[pid]++
+					}
+				}
+			}(pid)
+		}
+		wg.Wait()
+		for pid := range 3 {
+			if count[pid] > 0 {
+				log.Printf("[CFR %d] %s P%d avg loss: %.6f", cfrIt, label, pid, loss[pid]/float64(count[pid]))
+			}
+		}
+	})
+}
+
+func run(
+	cfrIt int,
+	execCh chan<- StartupTask,
+	wg *sync.WaitGroup,
+	stats *cfr.CFRStats,
+	memoryBuffer *cfr.SQLiteMemoryBuffer,
+	strategyBuffer *cfr.SQLiteStrategyMemoryBuffer,
+	batchExecutor *cfr.GRPCBatchExecutor,
+	benchStates []benchmarkState,
+) {
+	// Traverse
+	stats.TreesTraversed.Store(0)
+	elapsed := bench.MeasureExec(func() {
+		for range TRAVERSE_ITERS {
+			for pid := range 3 {
+				wg.Add(1)
+				execCh <- StartupTask{PlayerId: pid, CfrIter: cfrIt}
+			}
+		}
+		wg.Wait()
+	})
+	log.Printf("[CFR %d] Traversed in %s. Buffer: regret=[%d, %d, %d] strategy=[%d, %d, %d]",
+		cfrIt, elapsed,
+		memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2),
+		strategyBuffer.Count(0), strategyBuffer.Count(1), strategyBuffer.Count(2),
+	)
+
+	// Save networks
+	if err := batchExecutor.Save(); err != nil {
+		log.Fatalf("failed to save networks: %v", err)
+	}
+
+	// Train advantage networks
+	elapsed = trainParallel(cfrIt, "Advantage", ADV_TRAIN_ITERS, func(pid int) float32 {
+		batch := memoryBuffer.GetSamples(pid, BATCH_SIZE)
+		if len(batch) == 0 {
+			return -1
+		}
+		loss, err := batchExecutor.Train(pid, batch)
+		if err != nil {
+			log.Fatalf("failed to train advantage P%d: %v", pid, err)
+		}
+		return loss
+	})
+	log.Printf("[CFR %d] Advantage train finished in %s", cfrIt, elapsed)
+
+	// Train average strategy networks
+	elapsed = trainParallel(cfrIt, "AvgStrategy", AVG_TRAIN_ITERS, func(pid int) float32 {
+		batch := strategyBuffer.GetSamples(pid, BATCH_SIZE)
+		if len(batch) == 0 {
+			return -1
+		}
+		loss, err := batchExecutor.TrainAvgStrategy(pid, batch)
+		if err != nil {
+			log.Fatalf("failed to train avg strategy P%d: %v", pid, err)
+		}
+		return loss
+	})
+	log.Printf("[CFR %d] AvgStrategy train finished in %s", cfrIt, elapsed)
+
+	// Benchmark
+	logBenchmarkStrategies(cfrIt, benchStates, batchExecutor)
 }
 
 func main() {
@@ -151,14 +243,13 @@ func main() {
 		http.ListenAndServe(":6060", nil)
 	}()
 
-	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
-	var rngMut sync.Mutex
-
+	// Buffers
 	os.MkdirAll("data", 0755)
 	tempDir := os.Getenv("TEMP_DIR")
 	if tempDir == "" {
 		log.Fatal("TEMP_DIR environment variable is not set")
 	}
+
 	memoryBuffer, err := cfr.NewSQLiteMemoryBuffer(filepath.Join(tempDir, "regret_buffer.db"), 1_500_000)
 	if err != nil {
 		log.Fatal(err)
@@ -171,17 +262,14 @@ func main() {
 	}
 	defer strategyBuffer.Close()
 
-	log.Printf("Regret buffer: games=[%d, %d, %d]",
-		memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2),
-	)
-	log.Printf("Strategy buffer: games=[%d, %d, %d]",
-		strategyBuffer.Count(0), strategyBuffer.Count(1), strategyBuffer.Count(2),
-	)
+	log.Printf("Regret buffer: [%d, %d, %d]", memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2))
+	log.Printf("Strategy buffer: [%d, %d, %d]", strategyBuffer.Count(0), strategyBuffer.Count(1), strategyBuffer.Count(2))
 
-	dataDir := tempDir
-	cp := loadCheckpoint(dataDir)
+	// Checkpoint
+	cp := loadCheckpoint(tempDir)
 	log.Printf("Loaded checkpoint: cfr_iteration=%d", cp.CfrIteration)
 
+	// Neural
 	neuralAddr := os.Getenv("NEURAL_ADDR")
 	if neuralAddr == "" {
 		neuralAddr = "127.0.0.1:1338"
@@ -189,28 +277,22 @@ func main() {
 
 	actionsCache := &cfr.EmptyCache{}
 	batchExecutor, err := cfr.NewGrpcBatchExecutor(neuralAddr, 4500, 50000, time.Millisecond*100)
+	if err != nil {
+		log.Fatal(err)
+	}
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
 	}
-	if err != nil {
-		log.Fatal(err)
-	}
 	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
 	benchStates := buildBenchmarkStates()
 
-	const TRAVERSE_THREADS = 45000
-	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 15000
-	const ADV_TRAIN_ITERS = 350
-	const AVG_TRAIN_ITERS = 50
-	const BATCH_SIZE = 8000
-
-	ctx, cancel := context.WithCancel(context.Background())
-	_ = ctx
-	// Create workers threads
+	// Worker pool
+	rng := rand.New(rand.NewSource(time.Now().UnixMilli()))
+	var rngMut sync.Mutex
 	execCh := make(chan StartupTask, 10)
 	var wg sync.WaitGroup
+
 	for tID := range TRAVERSE_THREADS {
 		go func() {
 			rngMut.Lock()
@@ -222,165 +304,28 @@ func main() {
 			})
 			traverser := cfr.New(
 				int64(rng.Int())+int64(tID),
-				game,
-				actor,
-				memoryBuffer,
-				strategyBuffer,
-				stats,
+				game, actor, memoryBuffer, strategyBuffer, stats,
 			)
 			rngMut.Unlock()
 
-			//Traversing tree
-			for {
-				iter_task := <-execCh
-				_, err := traverser.TraverseTree(iter_task.PlayerId, iter_task.CfrIter)
-				if err != nil {
+			for task := range execCh {
+				if _, err := traverser.TraverseTree(task.PlayerId, task.CfrIter); err != nil {
 					log.Fatalf("failed to traverse tree: %v", err)
 				}
 				wg.Done()
 			}
-
 		}()
 	}
+
+	// CFR loop
+	_, cancel := context.WithCancel(context.Background())
 	go func() {
-		totalTraversals := 3 * TRAVERSE_ITERS // 3 players × TRAVERSE_ITERS
-
-		// CFR iterations
-		for cfr_it := cp.CfrIteration; cfr_it < CFR_ITERS; cfr_it++ {
-			cfr_it_elapsed := bench.MeasureExec(func() {
-				// Traverse with progress bar
-				stats.TreesTraversed.Store(0)
-				bar := progressbar.NewOptions(totalTraversals,
-					progressbar.OptionSetDescription(fmt.Sprintf("[CFR %d] Traversing", cfr_it)),
-					progressbar.OptionShowCount(),
-					progressbar.OptionShowIts(),
-					progressbar.OptionSetWidth(30),
-					progressbar.OptionThrottle(time.Second),
-					progressbar.OptionClearOnFinish(),
-				)
-
-				elapsed := bench.MeasureExec(func() {
-					// Update bar from stats counter
-					traverseDone := make(chan struct{})
-					go func() {
-						ticker := time.NewTicker(500 * time.Millisecond)
-						defer ticker.Stop()
-						prev := 0
-						for {
-							select {
-							case <-traverseDone:
-								return
-							case <-ticker.C:
-								cur := int(stats.TreesTraversed.Load())
-								if cur > prev {
-									bar.Add(cur - prev)
-									prev = cur
-								}
-							}
-						}
-					}()
-
-					for range TRAVERSE_ITERS {
-						for player_id := range 3 {
-							wg.Add(1)
-							execCh <- StartupTask{
-								PlayerId: player_id,
-								CfrIter:  cfr_it,
-							}
-						}
-					}
-					wg.Wait()
-					close(traverseDone)
-					bar.Finish()
-				})
-				log.Printf("[CFR_IT: %d] Finished traversing in %s. Games memory size: [%d, %d, %d]",
-					cfr_it,
-					elapsed,
-					memoryBuffer.Count(0),
-					memoryBuffer.Count(1),
-					memoryBuffer.Count(2),
-				)
-
-				//actionsCache.Clear()
-				err := batchExecutor.Save()
-				if err != nil {
-					log.Fatalf("failed to save networks: %v", err)
-				}
-
-				// Train advantage network
-				elapsed = bench.MeasureExec(func() {
-					for player_id := range 3 {
-						trainBar := progressbar.NewOptions(ADV_TRAIN_ITERS,
-							progressbar.OptionSetDescription(fmt.Sprintf("[CFR %d] Advantage P%d", cfr_it, player_id)),
-							progressbar.OptionShowCount(),
-							progressbar.OptionSetWidth(25),
-							progressbar.OptionClearOnFinish(),
-						)
-						var lossSum float32
-						var lossCount int
-						for tIter := range ADV_TRAIN_ITERS {
-							batch := memoryBuffer.GetSamples(player_id, BATCH_SIZE)
-							if len(batch) == 0 {
-								trainBar.Add(1)
-								continue
-							}
-							loss, err := batchExecutor.Train(player_id, batch)
-							if err != nil {
-								log.Fatalf("failed to train: %v", err)
-							}
-							lossSum += loss
-							lossCount++
-							trainBar.Describe(fmt.Sprintf("[CFR %d] Advantage P%d loss=%.0f", cfr_it, player_id, loss))
-							trainBar.Set(tIter + 1)
-						}
-						trainBar.Finish()
-						if lossCount > 0 {
-							log.Printf("[CFR_IT: %d] Advantage player %d avg loss: %.6f", cfr_it, player_id, lossSum/float32(lossCount))
-						}
-					}
-				})
-				log.Printf("[CFR_IT: %d] Advantage train finished in %s", cfr_it, elapsed)
-
-				// Train average strategy network
-				elapsed = bench.MeasureExec(func() {
-					for player_id := range 3 {
-						trainBar := progressbar.NewOptions(AVG_TRAIN_ITERS,
-							progressbar.OptionSetDescription(fmt.Sprintf("[CFR %d] AvgStrategy P%d", cfr_it, player_id)),
-							progressbar.OptionShowCount(),
-							progressbar.OptionSetWidth(25),
-							progressbar.OptionClearOnFinish(),
-						)
-						var lossSum float32
-						var lossCount int
-						for tIter := range AVG_TRAIN_ITERS {
-							batch := strategyBuffer.GetSamples(player_id, 10000)
-							if len(batch) == 0 {
-								trainBar.Add(1)
-								continue
-							}
-							loss, err := batchExecutor.TrainAvgStrategy(player_id, batch)
-							if err != nil {
-								log.Fatalf("failed to train avg strategy: %v", err)
-							}
-							lossSum += loss
-							lossCount++
-							trainBar.Describe(fmt.Sprintf("[CFR %d] AvgStrategy P%d loss=%.4f", cfr_it, player_id, loss))
-							trainBar.Set(tIter + 1)
-						}
-						trainBar.Finish()
-						if lossCount > 0 {
-							log.Printf("[CFR_IT: %d] AvgStrategy player %d avg loss: %.6f", cfr_it, player_id, lossSum/float32(lossCount))
-						}
-					}
-				})
-				log.Printf("[CFR_IT: %d] Avg strategy train finished in %s", cfr_it, elapsed)
-
-				// Log benchmark strategies
-				logBenchmarkStrategies(cfr_it, benchStates, batchExecutor)
+		for cfrIt := cp.CfrIteration; cfrIt < CFR_ITERS; cfrIt++ {
+			iterElapsed := bench.MeasureExec(func() {
+				run(cfrIt, execCh, &wg, stats, memoryBuffer, strategyBuffer, batchExecutor, benchStates)
 			})
-
-			log.Printf("CFR Iteration %d finished in %s", cfr_it, cfr_it_elapsed)
-			if err := saveCheckpoint(dataDir, Checkpoint{CfrIteration: cfr_it + 1}); err != nil {
+			log.Printf("CFR Iteration %d finished in %s", cfrIt, iterElapsed)
+			if err := saveCheckpoint(tempDir, Checkpoint{CfrIteration: cfrIt + 1}); err != nil {
 				log.Printf("WARNING: failed to save checkpoint: %v", err)
 			}
 		}

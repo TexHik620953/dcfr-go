@@ -30,7 +30,7 @@ checkpoint = "1773048994"
 ply_networks = []
 for i in range(3):
     print("Creating: ", i, " network")
-    net = DeepCFRModel(f"ply{i}", lr=1e-3, hidden_dim=HIDDEN_DIM).to(device)
+    net = DeepCFRModel(f"ply{i}", lr=3e-3, hidden_dim=HIDDEN_DIM).to(device)
     ply_networks.append(net)
 
 # Try to load checkpoint
@@ -45,7 +45,7 @@ for net in ply_networks:
 avg_networks = []
 for i in range(3):
     print("Creating avg strategy network: ", i)
-    net = AvgStrategyModel(f"avg{i}", lr=1e-3, hidden_dim=HIDDEN_DIM).to(device)
+    net = AvgStrategyModel(f"avg{i}", lr=3e-3, hidden_dim=HIDDEN_DIM).to(device)
     avg_networks.append(net)
 print("Avg strategy networks created")
 
@@ -61,10 +61,7 @@ tensorboard = SummaryWriter(log_dir="./tensorboard")
 
 def train_net(network, game_samples):
     """Train advantage network. Each sample is independent with its saved context vector."""
-    flat_samples = []
-    for game in game_samples:
-        for sample in game.samples:
-            flat_samples.append(sample)
+    flat_samples = [sample for game in game_samples for sample in game.samples]
 
     if len(flat_samples) == 0:
         return 0.0
@@ -76,16 +73,14 @@ def train_net(network, game_samples):
 
     features = network.encode_features(samples)  # [N, hidden]
 
-    # Reconstruct fixed-size context vectors from saved state
+    # Reconstruct fixed-size context vectors from saved state (vectorized)
     hidden_dim = network.hidden_dim
-    contexts = []
-    for sample in flat_samples:
-        h_flat = list(sample.lstm_context_h)
+    ctx_np = np.zeros((len(flat_samples), hidden_dim), dtype=np.float32)
+    for i, sample in enumerate(flat_samples):
+        h_flat = sample.lstm_context_h
         if len(h_flat) == hidden_dim:
-            contexts.append(torch.tensor(h_flat, device=device, dtype=torch.float32))
-        else:
-            contexts.append(torch.zeros(hidden_dim, device=device))
-    context = torch.stack(contexts)  # [N, hidden]
+            ctx_np[i] = h_flat
+    context = torch.as_tensor(ctx_np, device=device)  # [N, hidden]
 
     # Update context through GRU
     new_context = network.context_updater(features, context)
@@ -127,10 +122,7 @@ def train_net(network, game_samples):
 
 def train_avg_net(network, game_samples):
     """Train average strategy network using KL divergence loss."""
-    flat_samples = []
-    for game in game_samples:
-        for sample in game.samples:
-            flat_samples.append(sample)
+    flat_samples = [sample for game in game_samples for sample in game.samples]
 
     if len(flat_samples) == 0:
         return 0.0
@@ -143,14 +135,12 @@ def train_avg_net(network, game_samples):
     features = network.encode_features(samples)
 
     hidden_dim = network.hidden_dim
-    contexts = []
-    for sample in flat_samples:
-        h_flat = list(sample.lstm_context_h)
+    ctx_np = np.zeros((len(flat_samples), hidden_dim), dtype=np.float32)
+    for i, sample in enumerate(flat_samples):
+        h_flat = sample.lstm_context_h
         if len(h_flat) == hidden_dim:
-            contexts.append(torch.tensor(h_flat, device=device, dtype=torch.float32))
-        else:
-            contexts.append(torch.zeros(hidden_dim, device=device))
-    context = torch.stack(contexts)
+            ctx_np[i] = h_flat
+    context = torch.as_tensor(ctx_np, device=device)
 
     new_context = network.context_updater(features, context)
 

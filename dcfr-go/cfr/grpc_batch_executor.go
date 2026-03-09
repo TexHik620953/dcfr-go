@@ -2,7 +2,6 @@ package cfr
 
 import (
 	"context"
-	"dcfr-go/common/defaultmap"
 	"dcfr-go/common/safemap"
 	"dcfr-go/nolimitholdem"
 	"dcfr-go/proto/infra"
@@ -104,31 +103,110 @@ type execution_unit struct {
 	respCh chan *StrategyWithContext
 }
 
+// playerExecutor handles inference batching for a single player.
+type playerExecutor struct {
+	playerId     int
+	actorClient  infra.ActorClient
+	batchSize    int
+	maxBatchSize int
+	requests     Safemap[string, execution_unit]
+	mu           sync.Mutex
+}
+
+func newPlayerExecutor(playerId int, client infra.ActorClient, batchSize, maxBatchSize int, autoExecInterval time.Duration) *playerExecutor {
+	pe := &playerExecutor{
+		playerId:     playerId,
+		actorClient:  client,
+		batchSize:    batchSize,
+		maxBatchSize: maxBatchSize,
+		requests:     safemap.New[string, execution_unit](),
+	}
+	go pe.watcher(autoExecInterval)
+	return pe
+}
+
+func (pe *playerExecutor) watcher(interval time.Duration) {
+	for {
+		<-time.After(interval)
+		if pe.requests.Count() > 0 {
+			pe.doExecute(false)
+		}
+	}
+}
+
+func (pe *playerExecutor) enqueue(state *CFRState) chan *StrategyWithContext {
+	req_id := uuid.NewString()
+	for pe.requests.Exists(req_id) {
+		req_id = uuid.NewString()
+	}
+
+	ch := make(chan *StrategyWithContext, 1)
+	pe.requests.Set(req_id, execution_unit{
+		rq:     cfrstate2proto(state),
+		respCh: ch,
+	})
+	if pe.requests.Count() >= pe.batchSize {
+		go pe.doExecute(true)
+	}
+	return ch
+}
+
+func (pe *playerExecutor) doExecute(requireBatchSize bool) {
+	if !pe.mu.TryLock() {
+		return
+	}
+	defer pe.mu.Unlock()
+
+	targetSize := pe.requests.Count()
+	if targetSize == 0 {
+		return
+	}
+	if requireBatchSize && targetSize < pe.batchSize {
+		return
+	}
+	if targetSize > pe.maxBatchSize {
+		targetSize = pe.maxBatchSize
+	}
+
+	req := &infra.ActionProbsRequest{
+		States: make([]*infra.CFRState, 0, targetSize),
+	}
+
+	keys := make([]string, 0, targetSize)
+	c := 0
+	pe.requests.Foreach(func(k string, v execution_unit) bool {
+		req.States = append(req.States, v.rq)
+		keys = append(keys, k)
+		c++
+		return c < targetSize
+	})
+
+	resp, err := pe.actorClient.GetProbs(context.Background(), req)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for i, v := range resp.Responses {
+		key := keys[i]
+		unit, ex := pe.requests.Get(key)
+		if !ex {
+			log.Fatal("this should not happen")
+		}
+		unit.respCh <- proto2strat(v)
+		close(unit.respCh)
+		pe.requests.Delete(key)
+	}
+}
+
+// GRPCBatchExecutor wraps 3 independent per-player executors.
 type GRPCBatchExecutor struct {
 	conn        *grpc.ClientConn
 	actorClient infra.ActorClient
-
-	batchSize    int
-	maxBatchSize int
-
-	requestsPool Defaultmap[int, Safemap[string, execution_unit]]
-
-	// Per-player execution locks to allow parallel gRPC calls for different players
-	playerLocks      [3]sync.Mutex
-	autoExecInterval time.Duration
+	players     [3]*playerExecutor
 }
 
 func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int, autoExecInterval time.Duration) (*GRPCBatchExecutor, error) {
-	h := &GRPCBatchExecutor{
-		batchSize:    batchSize,
-		maxBatchSize: maxBatchSize,
-		requestsPool: defaultmap.New[int](func() Safemap[string, execution_unit] {
-			return safemap.New[string, execution_unit]()
-		}),
-		autoExecInterval: autoExecInterval,
-	}
-	var err error
-	h.conn, err = grpc.NewClient(serverAddr,
+	conn, err := grpc.NewClient(serverAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallSendMsgSize(512*1024*1024),
@@ -137,31 +215,23 @@ func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int, au
 	if err != nil {
 		return nil, err
 	}
-	h.actorClient = infra.NewActorClient(h.conn)
 
-	go h.watcher()
-
-	return h, nil
-}
-
-func (h *GRPCBatchExecutor) watcher() {
-	for {
-		<-time.After(h.autoExecInterval)
-		for pid := 0; pid < 3; pid++ {
-			rp := h.requestsPool.Get(pid)
-			cnt := rp.Count()
-			if cnt == 0 {
-				continue
-			}
-			go h.executeFlush(pid)
-		}
+	client := infra.NewActorClient(conn)
+	h := &GRPCBatchExecutor{
+		conn:        conn,
+		actorClient: client,
 	}
+	for i := range 3 {
+		h.players[i] = newPlayerExecutor(i, client, batchSize, maxBatchSize, autoExecInterval)
+	}
+	return h, nil
 }
 
 func (h *GRPCBatchExecutor) Save() error {
 	_, err := h.actorClient.Save(context.Background(), &infra.Empty{})
 	return err
 }
+
 func (h *GRPCBatchExecutor) Reset() error {
 	_, err := h.actorClient.Reset(context.Background(), &infra.Empty{})
 	return err
@@ -199,86 +269,7 @@ func (h *GRPCBatchExecutor) TrainAvgStrategy(playerID int, samples []*StrategyGa
 	return resp.Loss, nil
 }
 
-// execute is called from EnqueueGetStrategy — only fires if queue >= batchSize.
-func (h *GRPCBatchExecutor) execute(playerId int) {
-	h.doExecute(playerId, true)
-}
-
-// executeFlush is called by watcher — sends whatever is in the queue,
-// even if < batchSize, to prevent goroutines from waiting forever.
-func (h *GRPCBatchExecutor) executeFlush(playerId int) {
-	h.doExecute(playerId, false)
-}
-
-func (h *GRPCBatchExecutor) doExecute(playerId int, requireBatchSize bool) {
-	if playerId < 0 || playerId >= 3 {
-		return
-	}
-
-	if !h.playerLocks[playerId].TryLock() {
-		return
-	}
-	defer h.playerLocks[playerId].Unlock()
-
-	rp := h.requestsPool.Get(playerId)
-
-	targetSize := rp.Count()
-	if targetSize == 0 {
-		return
-	}
-	if requireBatchSize && targetSize < h.batchSize {
-		return
-	}
-	if targetSize > h.maxBatchSize {
-		targetSize = h.maxBatchSize
-	}
-
-	req := &infra.ActionProbsRequest{
-		States: make([]*infra.CFRState, 0, targetSize),
-	}
-
-	keys := make([]string, 0, targetSize)
-	c := 0
-	rp.Foreach(func(k string, v execution_unit) bool {
-		req.States = append(req.States, v.rq)
-		keys = append(keys, k)
-		c++
-		return c < targetSize
-	})
-
-	resp, err := h.actorClient.GetProbs(context.Background(), req)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for i, v := range resp.Responses {
-		key := keys[i]
-		unit, ex := rp.Get(key)
-		if !ex {
-			log.Fatal("this should not happen")
-		}
-		unit.respCh <- proto2strat(v)
-		close(unit.respCh)
-		rp.Delete(key)
-	}
-}
-
 func (h *GRPCBatchExecutor) EnqueueGetStrategy(state *CFRState) chan *StrategyWithContext {
-	rp := h.requestsPool.Get(int(state.GameState.CurrentPlayer))
-
-	req_id := uuid.NewString()
-	for rp.Exists(req_id) {
-		req_id = uuid.NewString()
-	}
-
-	ch := make(chan *StrategyWithContext, 1)
-
-	rp.Set(req_id, execution_unit{
-		rq:     cfrstate2proto(state),
-		respCh: ch,
-	})
-	if rp.Count() >= h.batchSize {
-		go h.execute(int(state.GameState.CurrentPlayer))
-	}
-	return ch
+	pid := int(state.GameState.CurrentPlayer)
+	return h.players[pid].enqueue(state)
 }
