@@ -24,7 +24,7 @@ print("Launching on: ", device)
 # DCFR weighting parameter
 DCFR_ALPHA = 1.5
 HIDDEN_DIM = 256
-checkpoint = "1773044727"
+checkpoint = "1773048994"
 
 # Create player networks
 ply_networks = []

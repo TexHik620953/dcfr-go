@@ -188,7 +188,7 @@ func main() {
 	}
 
 	actionsCache := &cfr.EmptyCache{}
-	batchExecutor, err := cfr.NewGrpcBatchExecutor(neuralAddr, 5000, 50000, time.Millisecond*100)
+	batchExecutor, err := cfr.NewGrpcBatchExecutor(neuralAddr, 4500, 50000, time.Millisecond*100)
 	stats := &cfr.CFRStats{
 		NodesVisited:   atomic.Int32{},
 		TreesTraversed: atomic.Int32{},
@@ -199,11 +199,12 @@ func main() {
 	actor := cfr.NewDeepCFRActor(actionsCache, batchExecutor)
 	benchStates := buildBenchmarkStates()
 
-	const TRAVERSE_THREADS = 60000
+	const TRAVERSE_THREADS = 45000
 	const CFR_ITERS = 1000
-	const TRAVERSE_ITERS = 20000
-	const TRAIN_ITERS = 400
-	const BATCH_SIZE = 5000
+	const TRAVERSE_ITERS = 15000
+	const ADV_TRAIN_ITERS = 350
+	const AVG_TRAIN_ITERS = 50
+	const BATCH_SIZE = 8000
 
 	ctx, cancel := context.WithCancel(context.Background())
 	_ = ctx
@@ -309,7 +310,7 @@ func main() {
 				// Train advantage network
 				elapsed = bench.MeasureExec(func() {
 					for player_id := range 3 {
-						trainBar := progressbar.NewOptions(TRAIN_ITERS,
+						trainBar := progressbar.NewOptions(ADV_TRAIN_ITERS,
 							progressbar.OptionSetDescription(fmt.Sprintf("[CFR %d] Advantage P%d", cfr_it, player_id)),
 							progressbar.OptionShowCount(),
 							progressbar.OptionSetWidth(25),
@@ -317,7 +318,7 @@ func main() {
 						)
 						var lossSum float32
 						var lossCount int
-						for tIter := range TRAIN_ITERS {
+						for tIter := range ADV_TRAIN_ITERS {
 							batch := memoryBuffer.GetSamples(player_id, BATCH_SIZE)
 							if len(batch) == 0 {
 								trainBar.Add(1)
@@ -343,7 +344,7 @@ func main() {
 				// Train average strategy network
 				elapsed = bench.MeasureExec(func() {
 					for player_id := range 3 {
-						trainBar := progressbar.NewOptions(TRAIN_ITERS,
+						trainBar := progressbar.NewOptions(AVG_TRAIN_ITERS,
 							progressbar.OptionSetDescription(fmt.Sprintf("[CFR %d] AvgStrategy P%d", cfr_it, player_id)),
 							progressbar.OptionShowCount(),
 							progressbar.OptionSetWidth(25),
@@ -351,7 +352,7 @@ func main() {
 						)
 						var lossSum float32
 						var lossCount int
-						for tIter := range TRAIN_ITERS {
+						for tIter := range AVG_TRAIN_ITERS {
 							batch := strategyBuffer.GetSamples(player_id, 10000)
 							if len(batch) == 0 {
 								trainBar.Add(1)

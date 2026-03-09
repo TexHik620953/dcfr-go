@@ -21,10 +21,12 @@ services:
       dockerfile: Dockerfile
     environment:
       - NEURAL_ADDR=neural:1338
+      - TEMP_DIR=/app/temp
     depends_on:
       - neural
     volumes:
       - ./data/go:/app/data
+      - ./data/temp:/app/temp
     logging:
       driver: "json-file"
       options:
