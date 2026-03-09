@@ -27,11 +27,27 @@ func (h *ActorsContext) At(player int) *ActorState {
 	return h.States[player]
 }
 
+// RegretMemory is the interface for regret sample storage.
+type RegretMemory interface {
+	AddSample(playerID int, gameID uuid.UUID, state *CFRState, regrets map[nolimitholdem.Action]float32, iteration int)
+	FlushGame(playerID int, gameID uuid.UUID)
+	GetSamples(playerID int, batchSize int) []*GameSample
+	Count(playerID int) int
+}
+
+// StrategyMemory is the interface for strategy sample storage.
+type StrategyMemoryI interface {
+	AddSample(playerID int, gameID uuid.UUID, state *CFRState, strategy nolimitholdem.Strategy, iteration int)
+	FlushGame(playerID int, gameID uuid.UUID)
+	GetSamples(playerID int, batchSize int) []*StrategyGameSample
+	Count(playerID int) int
+}
+
 type CFR struct {
 	coreGame       *nolimitholdem.Game
 	actor          CFRActor
-	Memory         *MemoryBuffer
-	StrategyMemory *StrategyMemoryBuffer
+	Memory         RegretMemory
+	StrategyMemory StrategyMemoryI
 
 	stats *CFRStats
 
@@ -45,7 +61,7 @@ type CFRStats struct {
 	TreesTraversed atomic.Int32
 }
 
-func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory *MemoryBuffer, strategyMemory *StrategyMemoryBuffer, stats *CFRStats) *CFR {
+func New(seed int64, game *nolimitholdem.Game, actor CFRActor, memory RegretMemory, strategyMemory StrategyMemoryI, stats *CFRStats) *CFR {
 	h := &CFR{
 		coreGame:       game,
 		actor:          actor,

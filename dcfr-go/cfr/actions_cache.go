@@ -3,6 +3,7 @@ package cfr
 import (
 	"dcfr-go/common/defaultmap"
 	"dcfr-go/common/safemap"
+	"sync/atomic"
 )
 
 type Defaultmap[K comparable, V any] = defaultmap.DefaultSafemap[K, V]
@@ -12,6 +13,9 @@ type ActionsCache struct {
 	playerStrategyCache Defaultmap[int, Safemap[uint64, *StrategyWithContext]]
 	cacheLimit          int
 	cacheClearRate      float32
+
+	hits   atomic.Int64
+	misses atomic.Int64
 }
 
 func NewActionsCache(cacheLimit int, cacheClearRate float32) *ActionsCache {
@@ -51,7 +55,9 @@ func (h *ActionsCache) GetRecord(playerId int, stateHash uint64) (*StrategyWithC
 	plyCache := h.playerStrategyCache.Get(playerId)
 	record, ex := plyCache.Get(stateHash)
 	if !ex {
+		h.misses.Add(1)
 		return nil, false
 	}
+	h.hits.Add(1)
 	return record, true
 }

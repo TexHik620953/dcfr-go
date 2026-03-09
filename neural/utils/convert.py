@@ -6,170 +6,148 @@ NUM_ACTIONS = 10
 
 
 def convert_pbstate_to_tensor(states, device):
-    active_players_mask = np.array([s.game_state.active_players_mask for s in states])
-    player_pots = np.array([s.game_state.players_pots for s in states])
-    stakes = np.array([s.game_state.stakes for s in states])
-    actions_mask = [list(s.game_state.legal_actions) for s in states]
-    stage = np.array([s.game_state.stage for s in states])
-    current_player = np.array([s.game_state.current_player for s in states])
+    n = len(states)
 
-    public_cards = [list(s.game_state.public_cards) for s in states]
-    private_cards = np.array([s.game_state.private_cards for s in states])
+    # Pre-allocate numpy arrays
+    active_players_mask = np.empty((n, 3), dtype=np.float32)
+    player_pots = np.empty((n, 3), dtype=np.float32)
+    stakes = np.empty((n, 3), dtype=np.float32)
+    actions_mask = np.zeros((n, NUM_ACTIONS), dtype=np.float32)
+    stage = np.empty((n, 1), dtype=np.int32)
+    current_player = np.empty((n, 1), dtype=np.int32)
+    public_cards = np.full((n, 5), -1, dtype=np.int32)
+    private_cards = np.empty((n, 2), dtype=np.int32)
 
-    for i, act in enumerate(actions_mask):
-        r = np.zeros(NUM_ACTIONS)
-        r[act] = 1.0
-        actions_mask[i] = r
-    actions_mask = np.array(actions_mask)
+    history_h = [None] * n
 
-    for i, pc in enumerate(public_cards):
-        public_cards[i] = pc + [-1 for _ in range(5 - len(pc))]
-    public_cards = np.array(public_cards)
+    for i, s in enumerate(states):
+        gs = s.game_state
+        active_players_mask[i] = gs.active_players_mask
+        player_pots[i] = gs.players_pots
+        stakes[i] = gs.stakes
+        stage[i, 0] = gs.stage
+        current_player[i, 0] = gs.current_player
+
+        for a in gs.legal_actions:
+            actions_mask[i, a] = 1.0
+
+        pc = gs.public_cards
+        for j in range(len(pc)):
+            public_cards[i, j] = pc[j]
+
+        private_cards[i, 0] = gs.private_cards[0]
+        private_cards[i, 1] = gs.private_cards[1]
+
+        if len(s.lstm_context_h) > 0:
+            history_h[i] = s.lstm_context_h
 
     bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
     bank = np.maximum(bank, 1e-8)
-    stakes = stakes / bank
-    player_pots = player_pots / bank
+    stakes /= bank
+    player_pots /= bank
 
-    # History features for transformer (list of flat float arrays or None)
-    history_h = [s.lstm_context_h if len(s.lstm_context_h) > 0 else None for s in states]
-
-    public_cards = torch.tensor(public_cards, device=device, dtype=torch.int)
-    private_cards = torch.tensor(private_cards, device=device, dtype=torch.int)
-    stakes = torch.tensor(stakes, device=device, dtype=torch.float32)
-    actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32)
-    player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32)
-    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.float32)
-    stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
-    current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
+    public_cards = torch.as_tensor(public_cards, device=device)
+    private_cards = torch.as_tensor(private_cards, device=device)
+    stakes = torch.as_tensor(stakes, device=device)
+    actions_mask_t = torch.as_tensor(actions_mask, device=device)
+    player_pots = torch.as_tensor(player_pots, device=device)
+    active_players_mask = torch.as_tensor(active_players_mask, device=device)
+    stage = torch.as_tensor(stage, device=device)
+    current_player = torch.as_tensor(current_player, device=device)
 
     return (public_cards,
             private_cards,
             stakes,
-            actions_mask,
+            actions_mask_t,
             player_pots,
             active_players_mask,
             stage,
             current_player
-            ), actions_mask, history_h
+            ), actions_mask_t, history_h
+
+
+def _convert_common(samples, device):
+    """Shared conversion logic for game state fields."""
+    n = len(samples)
+
+    active_players_mask = np.empty((n, 3), dtype=np.float32)
+    player_pots = np.empty((n, 3), dtype=np.float32)
+    stakes = np.empty((n, 3), dtype=np.float32)
+    actions_mask = np.zeros((n, NUM_ACTIONS), dtype=np.float32)
+    stage = np.empty((n, 1), dtype=np.int32)
+    current_player = np.empty((n, 1), dtype=np.int32)
+    public_cards = np.full((n, 5), -1, dtype=np.int32)
+    private_cards = np.empty((n, 2), dtype=np.int32)
+
+    for i, s in enumerate(samples):
+        gs = s.game_state
+        active_players_mask[i] = gs.active_players_mask
+        player_pots[i] = gs.players_pots
+        stakes[i] = gs.stakes
+        stage[i, 0] = gs.stage
+        current_player[i, 0] = gs.current_player
+
+        for a in gs.legal_actions:
+            actions_mask[i, a] = 1.0
+
+        pc = gs.public_cards
+        for j in range(len(pc)):
+            public_cards[i, j] = pc[j]
+
+        private_cards[i, 0] = gs.private_cards[0]
+        private_cards[i, 1] = gs.private_cards[1]
+
+    bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
+    bank = np.maximum(bank, 1e-8)
+    stakes /= bank
+    player_pots /= bank
+
+    public_cards = torch.as_tensor(public_cards, device=device)
+    private_cards = torch.as_tensor(private_cards, device=device)
+    stakes = torch.as_tensor(stakes, device=device)
+    actions_mask = torch.as_tensor(actions_mask, device=device)
+    player_pots = torch.as_tensor(player_pots, device=device)
+    active_players_mask = torch.as_tensor(active_players_mask, device=device)
+    stage = torch.as_tensor(stage, device=device)
+    current_player = torch.as_tensor(current_player, device=device)
+
+    return (public_cards, private_cards, stakes, actions_mask,
+            player_pots, active_players_mask, stage, current_player)
 
 
 def convert_states_to_batch(samples, device):
-    regrets = [s.regrets for s in samples]
-    iterations = np.array([s.iteration for s in samples])
+    n = len(samples)
 
-    for i, regret in enumerate(regrets):
-        r = np.zeros(NUM_ACTIONS)
-        for k in regret:
-            r[k] = regret[k]
-        regrets[i] = r
-    regrets = np.array(regrets)
+    regrets = np.zeros((n, NUM_ACTIONS), dtype=np.float32)
+    iterations = np.empty(n, dtype=np.float32)
 
-    active_players_mask = np.array([s.game_state.active_players_mask for s in samples])
-    player_pots = np.array([s.game_state.players_pots for s in samples])
-    stakes = np.array([s.game_state.stakes for s in samples])
-    actions_mask = [list(s.game_state.legal_actions) for s in samples]
-    stage = np.array([s.game_state.stage for s in samples])
-    current_player = np.array([s.game_state.current_player for s in samples])
+    for i, s in enumerate(samples):
+        iterations[i] = s.iteration
+        for k, v in s.regrets.items():
+            regrets[i, k] = v
 
-    public_cards = [list(s.game_state.public_cards) for s in samples]
-    private_cards = np.array([s.game_state.private_cards for s in samples])
+    state_tensors = _convert_common(samples, device)
 
-    for i, act in enumerate(actions_mask):
-        r = np.zeros(NUM_ACTIONS)
-        r[act] = 1.0
-        actions_mask[i] = r
-    actions_mask = np.array(actions_mask)
+    iterations = torch.as_tensor(iterations, device=device)
+    regrets = torch.as_tensor(regrets, device=device)
 
-    for i, pc in enumerate(public_cards):
-        public_cards[i] = pc + [-1 for _ in range(5 - len(pc))]
-    public_cards = np.array(public_cards)
-
-    bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
-    bank = np.maximum(bank, 1e-8)
-    stakes = stakes / bank
-    player_pots = player_pots / bank
-
-    public_cards = torch.tensor(public_cards, device=device, dtype=torch.int)
-    private_cards = torch.tensor(private_cards, device=device, dtype=torch.int)
-    stakes = torch.tensor(stakes, device=device, dtype=torch.float32)
-    actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32)
-    player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32)
-    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.float32)
-    stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
-    current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
-
-    iterations = torch.tensor(iterations, device=device, dtype=torch.float32)
-    regrets = torch.tensor(regrets, device=device, dtype=torch.float32)
-
-    return (public_cards,
-            private_cards,
-            stakes,
-            actions_mask,
-            player_pots,
-            active_players_mask,
-            stage,
-            current_player
-            ), (iterations, regrets)
+    return state_tensors, (iterations, regrets)
 
 
 def convert_strategy_states_to_batch(samples, device):
-    """Convert strategy samples (for average strategy network training).
-    Returns: (state_tensors, (iterations, strategy_targets))
-    """
-    strategies = [s.strategy for s in samples]
-    iterations = np.array([s.iteration for s in samples])
+    n = len(samples)
 
-    for i, strat in enumerate(strategies):
-        r = np.zeros(NUM_ACTIONS)
-        for k in strat:
-            r[k] = strat[k]
-        strategies[i] = r
-    strategies = np.array(strategies)
+    strategies = np.zeros((n, NUM_ACTIONS), dtype=np.float32)
+    iterations = np.empty(n, dtype=np.float32)
 
-    active_players_mask = np.array([s.game_state.active_players_mask for s in samples])
-    player_pots = np.array([s.game_state.players_pots for s in samples])
-    stakes = np.array([s.game_state.stakes for s in samples])
-    actions_mask = [list(s.game_state.legal_actions) for s in samples]
-    stage = np.array([s.game_state.stage for s in samples])
-    current_player = np.array([s.game_state.current_player for s in samples])
+    for i, s in enumerate(samples):
+        iterations[i] = s.iteration
+        for k, v in s.strategy.items():
+            strategies[i, k] = v
 
-    public_cards = [list(s.game_state.public_cards) for s in samples]
-    private_cards = np.array([s.game_state.private_cards for s in samples])
+    state_tensors = _convert_common(samples, device)
 
-    for i, act in enumerate(actions_mask):
-        r = np.zeros(NUM_ACTIONS)
-        r[act] = 1.0
-        actions_mask[i] = r
-    actions_mask = np.array(actions_mask)
+    iterations = torch.as_tensor(iterations, device=device)
+    strategies = torch.as_tensor(strategies, device=device)
 
-    for i, pc in enumerate(public_cards):
-        public_cards[i] = pc + [-1 for _ in range(5 - len(pc))]
-    public_cards = np.array(public_cards)
-
-    bank = stakes.sum(axis=1, keepdims=True) + player_pots.sum(axis=1, keepdims=True)
-    bank = np.maximum(bank, 1e-8)
-    stakes = stakes / bank
-    player_pots = player_pots / bank
-
-    public_cards = torch.tensor(public_cards, device=device, dtype=torch.int)
-    private_cards = torch.tensor(private_cards, device=device, dtype=torch.int)
-    stakes = torch.tensor(stakes, device=device, dtype=torch.float32)
-    actions_mask = torch.tensor(actions_mask, device=device, dtype=torch.float32)
-    player_pots = torch.tensor(player_pots, device=device, dtype=torch.float32)
-    active_players_mask = torch.tensor(active_players_mask, device=device, dtype=torch.float32)
-    stage = torch.tensor(stage, device=device, dtype=torch.int).unsqueeze(1)
-    current_player = torch.tensor(current_player, device=device, dtype=torch.int).unsqueeze(1)
-
-    iterations = torch.tensor(iterations, device=device, dtype=torch.float32)
-    strategies = torch.tensor(strategies, device=device, dtype=torch.float32)
-
-    return (public_cards,
-            private_cards,
-            stakes,
-            actions_mask,
-            player_pots,
-            active_players_mask,
-            stage,
-            current_player
-            ), (iterations, strategies)
+    return state_tensors, (iterations, strategies)

@@ -7,6 +7,18 @@ import (
 	"hash/fnv"
 )
 
+type EmptyCache struct{}
+
+func (*EmptyCache) AddRecord(playerId int, stateHash uint64, strategy *StrategyWithContext) {}
+func (*EmptyCache) GetRecord(playerId int, stateHash uint64) (*StrategyWithContext, bool) {
+	return nil, false
+}
+
+type Cache interface {
+	AddRecord(playerId int, stateHash uint64, strategy *StrategyWithContext)
+	GetRecord(playerId int, stateHash uint64) (*StrategyWithContext, bool)
+}
+
 type CFRActorStateHash uint64
 
 type StrategyWithContext struct {
@@ -40,11 +52,11 @@ type CFRActor interface {
 }
 
 type DeepCFRActor struct {
-	cache    *ActionsCache
+	cache    Cache
 	executor *GRPCBatchExecutor
 }
 
-func NewDeepCFRActor(cache *ActionsCache, executor *GRPCBatchExecutor) CFRActor {
+func NewDeepCFRActor(cache Cache, executor *GRPCBatchExecutor) CFRActor {
 	return &DeepCFRActor{
 		cache:    cache,
 		executor: executor,

@@ -17,8 +17,8 @@ import (
 
 func cfrstate2proto(state *CFRState) *infra.CFRState {
 	s := &infra.CFRState{
-		GameState:     gamestate2proto(state.GameState),
-		LstmContextH: state.ActorState.LstmH, // reused for history context
+		GameState:    gamestate2proto(state.GameState),
+		LstmContextH: state.ActorState.LstmH,
 	}
 	return s
 }
@@ -113,19 +113,19 @@ type GRPCBatchExecutor struct {
 
 	requestsPool Defaultmap[int, Safemap[string, execution_unit]]
 
-	lastExec time.Time
-
-	executionLock sync.Mutex
+	// Per-player execution locks to allow parallel gRPC calls for different players
+	playerLocks      [3]sync.Mutex
+	autoExecInterval time.Duration
 }
 
-func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int) (*GRPCBatchExecutor, error) {
+func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int, autoExecInterval time.Duration) (*GRPCBatchExecutor, error) {
 	h := &GRPCBatchExecutor{
 		batchSize:    batchSize,
 		maxBatchSize: maxBatchSize,
 		requestsPool: defaultmap.New[int](func() Safemap[string, execution_unit] {
 			return safemap.New[string, execution_unit]()
 		}),
-		lastExec: time.Now(),
+		autoExecInterval: autoExecInterval,
 	}
 	var err error
 	h.conn, err = grpc.NewClient(serverAddr,
@@ -146,17 +146,15 @@ func NewGrpcBatchExecutor(serverAddr string, batchSize int, maxBatchSize int) (*
 
 func (h *GRPCBatchExecutor) watcher() {
 	for {
-		if time.Since(h.lastExec) > time.Millisecond*100 {
-			keys := make([]int, 0, h.requestsPool.Count())
-			h.requestsPool.Foreach(func(i int, s Safemap[string, execution_unit]) bool {
-				keys = append(keys, i)
-				return true
-			})
-			for _, k := range keys {
-				h.execute(k)
+		<-time.After(h.autoExecInterval)
+		for pid := 0; pid < 3; pid++ {
+			rp := h.requestsPool.Get(pid)
+			cnt := rp.Count()
+			if cnt == 0 {
+				continue
 			}
+			go h.executeFlush(pid)
 		}
-		<-time.After(time.Millisecond * 110)
 	}
 }
 
@@ -201,19 +199,38 @@ func (h *GRPCBatchExecutor) TrainAvgStrategy(playerID int, samples []*StrategyGa
 	return resp.Loss, nil
 }
 
+// execute is called from EnqueueGetStrategy — only fires if queue >= batchSize.
 func (h *GRPCBatchExecutor) execute(playerId int) {
-	h.executionLock.Lock()
-	defer h.executionLock.Unlock()
-	h.lastExec = time.Now()
+	h.doExecute(playerId, true)
+}
+
+// executeFlush is called by watcher — sends whatever is in the queue,
+// even if < batchSize, to prevent goroutines from waiting forever.
+func (h *GRPCBatchExecutor) executeFlush(playerId int) {
+	h.doExecute(playerId, false)
+}
+
+func (h *GRPCBatchExecutor) doExecute(playerId int, requireBatchSize bool) {
+	if playerId < 0 || playerId >= 3 {
+		return
+	}
+
+	if !h.playerLocks[playerId].TryLock() {
+		return
+	}
+	defer h.playerLocks[playerId].Unlock()
 
 	rp := h.requestsPool.Get(playerId)
 
 	targetSize := rp.Count()
-	if targetSize > h.maxBatchSize {
-		targetSize = h.maxBatchSize
-	}
 	if targetSize == 0 {
 		return
+	}
+	if requireBatchSize && targetSize < h.batchSize {
+		return
+	}
+	if targetSize > h.maxBatchSize {
+		targetSize = h.maxBatchSize
 	}
 
 	req := &infra.ActionProbsRequest{
@@ -247,9 +264,6 @@ func (h *GRPCBatchExecutor) execute(playerId int) {
 }
 
 func (h *GRPCBatchExecutor) EnqueueGetStrategy(state *CFRState) chan *StrategyWithContext {
-	h.executionLock.Lock()
-	defer h.executionLock.Unlock()
-
 	rp := h.requestsPool.Get(int(state.GameState.CurrentPlayer))
 
 	req_id := uuid.NewString()
@@ -264,9 +278,7 @@ func (h *GRPCBatchExecutor) EnqueueGetStrategy(state *CFRState) chan *StrategyWi
 		respCh: ch,
 	})
 	if rp.Count() >= h.batchSize {
-		go func() {
-			h.execute(int(state.GameState.CurrentPlayer))
-		}()
+		go h.execute(int(state.GameState.CurrentPlayer))
 	}
 	return ch
 }

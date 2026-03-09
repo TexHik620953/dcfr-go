@@ -24,7 +24,7 @@ print("Launching on: ", device)
 # DCFR weighting parameter
 DCFR_ALPHA = 1.5
 HIDDEN_DIM = 256
-checkpoint = "1772885356"
+checkpoint = "1773044727"
 
 # Create player networks
 ply_networks = []
@@ -185,42 +185,53 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
 
     def GetProbs(self, request, context):
         try:
-            self.handled += len(request.states)
-            if self.handled % 10000 < len(request.states):
-                print(f"Handled: {self.handled} requests")
+            import time as _time
+            t0 = _time.perf_counter()
+
+            batch_size = len(request.states)
+            self.handled += batch_size
             curr_player = request.states[0].game_state.current_player
 
+            t1 = _time.perf_counter()
             state, actions_mask, history_h = convert_pbstate_to_tensor(request.states, device)
 
-            # Reconstruct fixed-size context vectors
+            # Reconstruct fixed-size context vectors — batch at once
             hidden_dim = ply_networks[curr_player].hidden_dim
             prev_context = None
             if history_h[0] is not None:
-                ctx_list = []
-                for h_flat in history_h:
+                ctx_np = np.zeros((batch_size, hidden_dim), dtype=np.float32)
+                for idx, h_flat in enumerate(history_h):
                     if h_flat is not None and len(h_flat) == hidden_dim:
-                        ctx_list.append(torch.tensor(h_flat, device=device, dtype=torch.float32).unsqueeze(0))
-                    else:
-                        ctx_list.append(torch.zeros(1, hidden_dim, device=device))
-                prev_context = torch.cat(ctx_list, dim=0)  # [batch, hidden]
+                        ctx_np[idx] = h_flat
+                prev_context = torch.as_tensor(ctx_np, device=device)
 
+            t2 = _time.perf_counter()
             probs, new_context = ply_networks[curr_player].get_probs(state, actions_mask, prev_context)
 
-            probs = probs.cpu().numpy()
-            new_context_np = new_context.cpu().numpy()  # [batch, hidden_dim]
+            t3 = _time.perf_counter()
+            probs_np = probs.cpu().numpy()
+            context_np = new_context.cpu().numpy()
+
+            t4 = _time.perf_counter()
+            # Batch convert to Python lists (much faster than per-row .tolist())
+            probs_list = probs_np.tolist()
+            context_list = context_np.tolist()
 
             resp = actor_pb2.ActionProbsResponse()
-            for unit_id in range(probs.shape[0]):
+            for unit_id in range(batch_size):
                 r = actor_pb2.ProbsResponse()
-
-                for i, prob in enumerate(probs[unit_id].tolist()):
+                for i, prob in enumerate(probs_list[unit_id]):
                     if prob > 1e-8:
                         r.action_probs[i] = prob
-
-                # Store fixed-size context vector (exactly hidden_dim floats)
-                r.lstm_context_h.extend(new_context_np[unit_id].tolist())
-
+                r.lstm_context_h[:] = context_list[unit_id]
                 resp.responses.append(r)
+
+            t5 = _time.perf_counter()
+            if self.handled % 100000 < batch_size:
+                print(f"[GetProbs] batch={batch_size} | "
+                      f"parse={t2-t1:.3f}s | inference={t3-t2:.3f}s | "
+                      f"to_cpu={t4-t3:.3f}s | build_resp={t5-t4:.3f}s | "
+                      f"total={t5-t0:.3f}s")
             return resp
         except Exception as e:
             traceback.print_exc()

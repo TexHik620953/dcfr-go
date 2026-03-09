@@ -44,9 +44,9 @@ func (h *safemapImpl[K, V]) Delete(key K) {
 }
 
 func (h *safemapImpl[K, V]) Exists(key K) bool {
-	h.mutex.Lock()
+	h.mutex.RLock()
 	_, ex := h.data[key]
-	h.mutex.Unlock()
+	h.mutex.RUnlock()
 	return ex
 }
 
@@ -61,5 +61,8 @@ func (h *safemapImpl[K, V]) Foreach(it func(K, V) bool) {
 }
 
 func (h *safemapImpl[K, V]) Count() int {
-	return len(h.data)
+	h.mutex.RLock()
+	n := len(h.data)
+	h.mutex.RUnlock()
+	return n
 }
