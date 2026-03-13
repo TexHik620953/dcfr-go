@@ -23,12 +23,15 @@ import (
 )
 
 const (
-	TRAVERSE_THREADS = 45000
-	CFR_ITERS        = 1000
-	TRAVERSE_ITERS   = 15000
-	ADV_TRAIN_ITERS  = 150
-	AVG_TRAIN_ITERS  = 20
-	BATCH_SIZE       = 6000
+	TRAVERSE_THREADS     = 20000
+	CFR_ITERS            = 1000
+	TRAVERSE_ITERS       = 100000
+	ADV_TRAIN_ITERS      = 1000
+	ADV_TRAIN_WARMUP     = 4500
+	ADV_WARMUP_CFR_ITERS = 0
+	AVG_TRAIN_ITERS      = 20
+	BATCH_SIZE           = 6000
+	MAX_SAMPLES          = 1_500_000
 )
 
 type StartupTask struct {
@@ -142,41 +145,12 @@ func logBenchmarkStrategies(cfrIt int, states []benchmarkState, executor *cfr.GR
 	}
 }
 
-// trainParallel runs trainFn for each of 3 players in parallel and logs avg loss.
-func trainParallel(cfrIt int, label string, iters int, trainFn func(pid int) float32) time.Duration {
-	return bench.MeasureExec(func() {
-		var wg sync.WaitGroup
-		var loss [3]float64
-		var count [3]int
-		for pid := range 3 {
-			wg.Add(1)
-			go func(pid int) {
-				defer wg.Done()
-				for range iters {
-					l := trainFn(pid)
-					if l >= 0 {
-						loss[pid] += float64(l)
-						count[pid]++
-					}
-				}
-			}(pid)
-		}
-		wg.Wait()
-		for pid := range 3 {
-			if count[pid] > 0 {
-				log.Printf("[CFR %d] %s P%d avg loss: %.6f", cfrIt, label, pid, loss[pid]/float64(count[pid]))
-			}
-		}
-	})
-}
-
 func run(
 	cfrIt int,
 	execCh chan<- StartupTask,
 	wg *sync.WaitGroup,
 	stats *cfr.CFRStats,
-	memoryBuffer *cfr.SQLiteMemoryBuffer,
-	strategyBuffer *cfr.SQLiteStrategyMemoryBuffer,
+	memoryBuffer *cfr.BinaryMemoryBuffer,
 	batchExecutor *cfr.GRPCBatchExecutor,
 	benchStates []benchmarkState,
 ) {
@@ -191,10 +165,13 @@ func run(
 		}
 		wg.Wait()
 	})
-	log.Printf("[CFR %d] Traversed in %s. Buffer: regret=[%d, %d, %d] strategy=[%d, %d, %d]",
+
+	// Drain writer to ensure all samples are on disk before training
+	memoryBuffer.Drain()
+
+	log.Printf("[CFR %d] Traversed in %s. Regret buffer: [%d, %d, %d]",
 		cfrIt, elapsed,
 		memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2),
-		strategyBuffer.Count(0), strategyBuffer.Count(1), strategyBuffer.Count(2),
 	)
 
 	// Save networks
@@ -202,33 +179,27 @@ func run(
 		log.Fatalf("failed to save networks: %v", err)
 	}
 
-	// Train advantage networks
-	elapsed = trainParallel(cfrIt, "Advantage", ADV_TRAIN_ITERS, func(pid int) float32 {
-		batch := memoryBuffer.GetSamples(pid, BATCH_SIZE)
-		if len(batch) == 0 {
-			return -1
+	// Train advantage networks — Python reads binary file directly
+	advIters := ADV_TRAIN_ITERS
+	if cfrIt < ADV_WARMUP_CFR_ITERS {
+		advIters = ADV_TRAIN_WARMUP
+	}
+	elapsed = bench.MeasureExec(func() {
+		var twg sync.WaitGroup
+		for pid := range 3 {
+			twg.Add(1)
+			go func(pid int) {
+				defer twg.Done()
+				avgLoss, err := batchExecutor.TrainDirect(pid, BATCH_SIZE, advIters, memoryBuffer.FilePath(), MAX_SAMPLES)
+				if err != nil {
+					log.Fatalf("failed to train advantage P%d: %v", pid, err)
+				}
+				log.Printf("[CFR %d] Advantage P%d avg loss: %.6f", cfrIt, pid, avgLoss)
+			}(pid)
 		}
-		loss, err := batchExecutor.Train(pid, batch)
-		if err != nil {
-			log.Fatalf("failed to train advantage P%d: %v", pid, err)
-		}
-		return loss
+		twg.Wait()
 	})
 	log.Printf("[CFR %d] Advantage train finished in %s", cfrIt, elapsed)
-
-	// Train average strategy networks
-	elapsed = trainParallel(cfrIt, "AvgStrategy", AVG_TRAIN_ITERS, func(pid int) float32 {
-		batch := strategyBuffer.GetSamples(pid, BATCH_SIZE)
-		if len(batch) == 0 {
-			return -1
-		}
-		loss, err := batchExecutor.TrainAvgStrategy(pid, batch)
-		if err != nil {
-			log.Fatalf("failed to train avg strategy P%d: %v", pid, err)
-		}
-		return loss
-	})
-	log.Printf("[CFR %d] AvgStrategy train finished in %s", cfrIt, elapsed)
 
 	// Benchmark
 	logBenchmarkStrategies(cfrIt, benchStates, batchExecutor)
@@ -244,26 +215,21 @@ func main() {
 	}()
 
 	// Buffers
-	os.MkdirAll("data", 0755)
 	tempDir := os.Getenv("TEMP_DIR")
 	if tempDir == "" {
 		log.Fatal("TEMP_DIR environment variable is not set")
 	}
 
-	memoryBuffer, err := cfr.NewSQLiteMemoryBuffer(filepath.Join(tempDir, "regret_buffer.db"), 1_500_000)
+	memoryBuffer, err := cfr.NewBinaryMemoryBuffer(filepath.Join(tempDir, "regret_buffer.bin"), MAX_SAMPLES, 256)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer memoryBuffer.Close()
 
-	strategyBuffer, err := cfr.NewSQLiteStrategyMemoryBuffer(filepath.Join(tempDir, "strategy_buffer.db"), 1_500_000)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer strategyBuffer.Close()
+	// Strategy buffer disabled — will be trained separately after advantage networks converge
+	strategyBuffer := &cfr.NoopStrategyMemory{}
 
 	log.Printf("Regret buffer: [%d, %d, %d]", memoryBuffer.Count(0), memoryBuffer.Count(1), memoryBuffer.Count(2))
-	log.Printf("Strategy buffer: [%d, %d, %d]", strategyBuffer.Count(0), strategyBuffer.Count(1), strategyBuffer.Count(2))
 
 	// Checkpoint
 	cp := loadCheckpoint(tempDir)
@@ -322,7 +288,7 @@ func main() {
 	go func() {
 		for cfrIt := cp.CfrIteration; cfrIt < CFR_ITERS; cfrIt++ {
 			iterElapsed := bench.MeasureExec(func() {
-				run(cfrIt, execCh, &wg, stats, memoryBuffer, strategyBuffer, batchExecutor, benchStates)
+				run(cfrIt, execCh, &wg, stats, memoryBuffer, batchExecutor, benchStates)
 			})
 			log.Printf("CFR Iteration %d finished in %s", cfrIt, iterElapsed)
 			if err := saveCheckpoint(tempDir, Checkpoint{CfrIteration: cfrIt + 1}); err != nil {

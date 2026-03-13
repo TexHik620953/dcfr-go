@@ -81,6 +81,9 @@ service Actor {
 
   // Тренировать average strategy сеть
   rpc TrainAvgStrategy (TrainAvgStrategyRequest) returns (TrainResponse) {}
+
+  // Тренировка: Python читает binary file напрямую через numpy.memmap
+  rpc TrainDirect (TrainDirectRequest) returns (TrainDirectResponse) {}
 }
 
 // Запрос состояния игры
@@ -113,4 +116,17 @@ message TrainRequest {
 
 message TrainResponse {
   float loss = 1;
+}
+
+// Direct training: Python reads SQLite DB directly
+message TrainDirectRequest {
+  int32 current_player = 1;
+  int32 batch_size = 2;
+  int32 iterations = 3;
+  string db_path = 4;
+  int32 max_samples = 5;
+}
+
+message TrainDirectResponse {
+  float avg_loss = 1;
 }

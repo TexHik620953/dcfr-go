@@ -24,6 +24,7 @@ const (
 	Actor_Save_FullMethodName             = "/infra.Actor/Save"
 	Actor_Reset_FullMethodName            = "/infra.Actor/Reset"
 	Actor_TrainAvgStrategy_FullMethodName = "/infra.Actor/TrainAvgStrategy"
+	Actor_TrainDirect_FullMethodName      = "/infra.Actor/TrainDirect"
 )
 
 // ActorClient is the client API for Actor service.
@@ -42,6 +43,8 @@ type ActorClient interface {
 	Reset(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	// Тренировать average strategy сеть
 	TrainAvgStrategy(ctx context.Context, in *TrainAvgStrategyRequest, opts ...grpc.CallOption) (*TrainResponse, error)
+	// Тренировка: Python читает binary file напрямую через numpy.memmap
+	TrainDirect(ctx context.Context, in *TrainDirectRequest, opts ...grpc.CallOption) (*TrainDirectResponse, error)
 }
 
 type actorClient struct {
@@ -102,6 +105,16 @@ func (c *actorClient) TrainAvgStrategy(ctx context.Context, in *TrainAvgStrategy
 	return out, nil
 }
 
+func (c *actorClient) TrainDirect(ctx context.Context, in *TrainDirectRequest, opts ...grpc.CallOption) (*TrainDirectResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TrainDirectResponse)
+	err := c.cc.Invoke(ctx, Actor_TrainDirect_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ActorServer is the server API for Actor service.
 // All implementations must embed UnimplementedActorServer
 // for forward compatibility.
@@ -118,6 +131,8 @@ type ActorServer interface {
 	Reset(context.Context, *Empty) (*Empty, error)
 	// Тренировать average strategy сеть
 	TrainAvgStrategy(context.Context, *TrainAvgStrategyRequest) (*TrainResponse, error)
+	// Тренировка: Python читает binary file напрямую через numpy.memmap
+	TrainDirect(context.Context, *TrainDirectRequest) (*TrainDirectResponse, error)
 	mustEmbedUnimplementedActorServer()
 }
 
@@ -142,6 +157,9 @@ func (UnimplementedActorServer) Reset(context.Context, *Empty) (*Empty, error) {
 }
 func (UnimplementedActorServer) TrainAvgStrategy(context.Context, *TrainAvgStrategyRequest) (*TrainResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TrainAvgStrategy not implemented")
+}
+func (UnimplementedActorServer) TrainDirect(context.Context, *TrainDirectRequest) (*TrainDirectResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TrainDirect not implemented")
 }
 func (UnimplementedActorServer) mustEmbedUnimplementedActorServer() {}
 func (UnimplementedActorServer) testEmbeddedByValue()               {}
@@ -254,6 +272,24 @@ func _Actor_TrainAvgStrategy_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Actor_TrainDirect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TrainDirectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActorServer).TrainDirect(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Actor_TrainDirect_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActorServer).TrainDirect(ctx, req.(*TrainDirectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Actor_ServiceDesc is the grpc.ServiceDesc for Actor service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -280,6 +316,10 @@ var Actor_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TrainAvgStrategy",
 			Handler:    _Actor_TrainAvgStrategy_Handler,
+		},
+		{
+			MethodName: "TrainDirect",
+			Handler:    _Actor_TrainDirect_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

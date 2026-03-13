@@ -43,6 +43,17 @@ type StrategyMemoryI interface {
 	Count(playerID int) int
 }
 
+// NoopStrategyMemory discards all strategy samples (use when avg strategy training is disabled).
+type NoopStrategyMemory struct{}
+
+func (n *NoopStrategyMemory) AddSample(playerID int, gameID uuid.UUID, state *CFRState, strategy nolimitholdem.Strategy, iteration int) {
+}
+func (n *NoopStrategyMemory) FlushGame(playerID int, gameID uuid.UUID) {}
+func (n *NoopStrategyMemory) GetSamples(playerID int, batchSize int) []*StrategyGameSample {
+	return nil
+}
+func (n *NoopStrategyMemory) Count(playerID int) int { return 0 }
+
 type CFR struct {
 	coreGame       *nolimitholdem.Game
 	actor          CFRActor

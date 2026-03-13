@@ -269,6 +269,20 @@ func (h *GRPCBatchExecutor) TrainAvgStrategy(playerID int, samples []*StrategyGa
 	return resp.Loss, nil
 }
 
+func (h *GRPCBatchExecutor) TrainDirect(playerID int, batchSize int, iterations int, dbPath string, maxSamples int) (float32, error) {
+	resp, err := h.actorClient.TrainDirect(context.Background(), &infra.TrainDirectRequest{
+		CurrentPlayer: int32(playerID),
+		BatchSize:     int32(batchSize),
+		Iterations:    int32(iterations),
+		DbPath:        dbPath,
+		MaxSamples:    int32(maxSamples),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return resp.AvgLoss, nil
+}
+
 func (h *GRPCBatchExecutor) EnqueueGetStrategy(state *CFRState) chan *StrategyWithContext {
 	pid := int(state.GameState.CurrentPlayer)
 	return h.players[pid].enqueue(state)

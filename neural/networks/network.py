@@ -123,9 +123,6 @@ class DeepCFRModel(nn.Module):
         self.stage_heads = self.modules_dict['stage_heads']
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=3e-5)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=5000, T_mult=2, eta_min=1e-5
-        )
 
     def encode_features(self, x):
         public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x
@@ -229,9 +226,6 @@ class AvgStrategyModel(nn.Module):
         self.stage_heads = self.modules_dict['stage_heads']
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=3e-5)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=5000, T_mult=2, eta_min=1e-5
-        )
 
     def encode_features(self, x):
         public_cards, private_cards, stacks, _, bets, active_players_mask, stage, current_player_pos = x

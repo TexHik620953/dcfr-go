@@ -13,7 +13,7 @@
             "program": "${workspaceFolder}/dcfr-go/main.go",
             "console": "integratedTerminal",
             "env": {
-                "TEMP_DIR": "./data"
+                "TEMP_DIR": "/run/media/texhik/WORK/CODING/NeuralNetworks/dcfr-go/data"
             }
         }
     ]

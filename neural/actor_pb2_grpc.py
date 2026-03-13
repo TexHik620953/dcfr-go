@@ -60,6 +60,11 @@ class ActorStub(object):
                 request_serializer=actor__pb2.TrainAvgStrategyRequest.SerializeToString,
                 response_deserializer=actor__pb2.TrainResponse.FromString,
                 _registered_method=True)
+        self.TrainDirect = channel.unary_unary(
+                '/infra.Actor/TrainDirect',
+                request_serializer=actor__pb2.TrainDirectRequest.SerializeToString,
+                response_deserializer=actor__pb2.TrainDirectResponse.FromString,
+                _registered_method=True)
 
 
 class ActorServicer(object):
@@ -101,6 +106,13 @@ class ActorServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def TrainDirect(self, request, context):
+        """Тренировка: Python читает binary file напрямую через numpy.memmap
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ActorServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -128,6 +140,11 @@ def add_ActorServicer_to_server(servicer, server):
                     servicer.TrainAvgStrategy,
                     request_deserializer=actor__pb2.TrainAvgStrategyRequest.FromString,
                     response_serializer=actor__pb2.TrainResponse.SerializeToString,
+            ),
+            'TrainDirect': grpc.unary_unary_rpc_method_handler(
+                    servicer.TrainDirect,
+                    request_deserializer=actor__pb2.TrainDirectRequest.FromString,
+                    response_serializer=actor__pb2.TrainDirectResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -266,6 +283,33 @@ class Actor(object):
             '/infra.Actor/TrainAvgStrategy',
             actor__pb2.TrainAvgStrategyRequest.SerializeToString,
             actor__pb2.TrainResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TrainDirect(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/infra.Actor/TrainDirect',
+            actor__pb2.TrainDirectRequest.SerializeToString,
+            actor__pb2.TrainDirectResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -808,6 +808,127 @@ func (x *TrainResponse) GetLoss() float32 {
 	return 0
 }
 
+// Direct training: Python reads SQLite DB directly
+type TrainDirectRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CurrentPlayer int32                  `protobuf:"varint,1,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
+	BatchSize     int32                  `protobuf:"varint,2,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
+	Iterations    int32                  `protobuf:"varint,3,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	DbPath        string                 `protobuf:"bytes,4,opt,name=db_path,json=dbPath,proto3" json:"db_path,omitempty"`
+	MaxSamples    int32                  `protobuf:"varint,5,opt,name=max_samples,json=maxSamples,proto3" json:"max_samples,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrainDirectRequest) Reset() {
+	*x = TrainDirectRequest{}
+	mi := &file_proto_infra_actor_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrainDirectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrainDirectRequest) ProtoMessage() {}
+
+func (x *TrainDirectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_infra_actor_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TrainDirectRequest.ProtoReflect.Descriptor instead.
+func (*TrainDirectRequest) Descriptor() ([]byte, []int) {
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *TrainDirectRequest) GetCurrentPlayer() int32 {
+	if x != nil {
+		return x.CurrentPlayer
+	}
+	return 0
+}
+
+func (x *TrainDirectRequest) GetBatchSize() int32 {
+	if x != nil {
+		return x.BatchSize
+	}
+	return 0
+}
+
+func (x *TrainDirectRequest) GetIterations() int32 {
+	if x != nil {
+		return x.Iterations
+	}
+	return 0
+}
+
+func (x *TrainDirectRequest) GetDbPath() string {
+	if x != nil {
+		return x.DbPath
+	}
+	return ""
+}
+
+func (x *TrainDirectRequest) GetMaxSamples() int32 {
+	if x != nil {
+		return x.MaxSamples
+	}
+	return 0
+}
+
+type TrainDirectResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AvgLoss       float32                `protobuf:"fixed32,1,opt,name=avg_loss,json=avgLoss,proto3" json:"avg_loss,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrainDirectResponse) Reset() {
+	*x = TrainDirectResponse{}
+	mi := &file_proto_infra_actor_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrainDirectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrainDirectResponse) ProtoMessage() {}
+
+func (x *TrainDirectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_infra_actor_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TrainDirectResponse.ProtoReflect.Descriptor instead.
+func (*TrainDirectResponse) Descriptor() ([]byte, []int) {
+	return file_proto_infra_actor_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *TrainDirectResponse) GetAvgLoss() float32 {
+	if x != nil {
+		return x.AvgLoss
+	}
+	return 0
+}
+
 var File_proto_infra_actor_proto protoreflect.FileDescriptor
 
 const file_proto_infra_actor_proto_rawDesc = "" +
@@ -873,19 +994,32 @@ const file_proto_infra_actor_proto_rawDesc = "" +
 	"\x0ecurrent_player\x18\x01 \x01(\x05R\rcurrentPlayer\x124\n" +
 	"\fgame_samples\x18\x02 \x03(\v2\x11.infra.GameSampleR\vgameSamples\"#\n" +
 	"\rTrainResponse\x12\x12\n" +
-	"\x04loss\x18\x01 \x01(\x02R\x04loss*E\n" +
+	"\x04loss\x18\x01 \x01(\x02R\x04loss\"\xb4\x01\n" +
+	"\x12TrainDirectRequest\x12%\n" +
+	"\x0ecurrent_player\x18\x01 \x01(\x05R\rcurrentPlayer\x12\x1d\n" +
+	"\n" +
+	"batch_size\x18\x02 \x01(\x05R\tbatchSize\x12\x1e\n" +
+	"\n" +
+	"iterations\x18\x03 \x01(\x05R\n" +
+	"iterations\x12\x17\n" +
+	"\adb_path\x18\x04 \x01(\tR\x06dbPath\x12\x1f\n" +
+	"\vmax_samples\x18\x05 \x01(\x05R\n" +
+	"maxSamples\"0\n" +
+	"\x13TrainDirectResponse\x12\x19\n" +
+	"\bavg_loss\x18\x01 \x01(\x02R\aavgLoss*E\n" +
 	"\tGameStage\x12\v\n" +
 	"\aPREFLOP\x10\x00\x12\b\n" +
 	"\x04FLOP\x10\x01\x12\b\n" +
 	"\x04TURN\x10\x02\x12\t\n" +
 	"\x05RIVER\x10\x03\x12\f\n" +
-	"\bSHOWDOWN\x10\x042\x9b\x02\n" +
+	"\bSHOWDOWN\x10\x042\xe3\x02\n" +
 	"\x05Actor\x12C\n" +
 	"\bGetProbs\x12\x19.infra.ActionProbsRequest\x1a\x1a.infra.ActionProbsResponse\"\x00\x124\n" +
 	"\x05Train\x12\x13.infra.TrainRequest\x1a\x14.infra.TrainResponse\"\x00\x12$\n" +
 	"\x04Save\x12\f.infra.Empty\x1a\f.infra.Empty\"\x00\x12%\n" +
 	"\x05Reset\x12\f.infra.Empty\x1a\f.infra.Empty\"\x00\x12J\n" +
-	"\x10TrainAvgStrategy\x12\x1e.infra.TrainAvgStrategyRequest\x1a\x14.infra.TrainResponse\"\x00B\tZ\a.;infrab\x06proto3"
+	"\x10TrainAvgStrategy\x12\x1e.infra.TrainAvgStrategyRequest\x1a\x14.infra.TrainResponse\"\x00\x12F\n" +
+	"\vTrainDirect\x12\x19.infra.TrainDirectRequest\x1a\x1a.infra.TrainDirectResponse\"\x00B\tZ\a.;infrab\x06proto3"
 
 var (
 	file_proto_infra_actor_proto_rawDescOnce sync.Once
@@ -900,7 +1034,7 @@ func file_proto_infra_actor_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_infra_actor_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_infra_actor_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_proto_infra_actor_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_proto_infra_actor_proto_goTypes = []any{
 	(GameStage)(0),                  // 0: infra.GameStage
 	(*Empty)(nil),                   // 1: infra.Empty
@@ -916,38 +1050,42 @@ var file_proto_infra_actor_proto_goTypes = []any{
 	(*ProbsResponse)(nil),           // 11: infra.ProbsResponse
 	(*TrainRequest)(nil),            // 12: infra.TrainRequest
 	(*TrainResponse)(nil),           // 13: infra.TrainResponse
-	nil,                             // 14: infra.GameState.LegalActionsEntry
-	nil,                             // 15: infra.StateSample.RegretsEntry
-	nil,                             // 16: infra.StrategySample.StrategyEntry
-	nil,                             // 17: infra.ProbsResponse.ActionProbsEntry
+	(*TrainDirectRequest)(nil),      // 14: infra.TrainDirectRequest
+	(*TrainDirectResponse)(nil),     // 15: infra.TrainDirectResponse
+	nil,                             // 16: infra.GameState.LegalActionsEntry
+	nil,                             // 17: infra.StateSample.RegretsEntry
+	nil,                             // 18: infra.StrategySample.StrategyEntry
+	nil,                             // 19: infra.ProbsResponse.ActionProbsEntry
 }
 var file_proto_infra_actor_proto_depIdxs = []int32{
-	14, // 0: infra.GameState.legal_actions:type_name -> infra.GameState.LegalActionsEntry
+	16, // 0: infra.GameState.legal_actions:type_name -> infra.GameState.LegalActionsEntry
 	0,  // 1: infra.GameState.stage:type_name -> infra.GameStage
 	2,  // 2: infra.StateSample.game_state:type_name -> infra.GameState
-	15, // 3: infra.StateSample.regrets:type_name -> infra.StateSample.RegretsEntry
+	17, // 3: infra.StateSample.regrets:type_name -> infra.StateSample.RegretsEntry
 	3,  // 4: infra.GameSample.samples:type_name -> infra.StateSample
 	2,  // 5: infra.StrategySample.game_state:type_name -> infra.GameState
-	16, // 6: infra.StrategySample.strategy:type_name -> infra.StrategySample.StrategyEntry
+	18, // 6: infra.StrategySample.strategy:type_name -> infra.StrategySample.StrategyEntry
 	5,  // 7: infra.StrategyGameSample.samples:type_name -> infra.StrategySample
 	6,  // 8: infra.TrainAvgStrategyRequest.game_samples:type_name -> infra.StrategyGameSample
 	2,  // 9: infra.CFRState.game_state:type_name -> infra.GameState
 	8,  // 10: infra.ActionProbsRequest.states:type_name -> infra.CFRState
 	11, // 11: infra.ActionProbsResponse.responses:type_name -> infra.ProbsResponse
-	17, // 12: infra.ProbsResponse.action_probs:type_name -> infra.ProbsResponse.ActionProbsEntry
+	19, // 12: infra.ProbsResponse.action_probs:type_name -> infra.ProbsResponse.ActionProbsEntry
 	4,  // 13: infra.TrainRequest.game_samples:type_name -> infra.GameSample
 	9,  // 14: infra.Actor.GetProbs:input_type -> infra.ActionProbsRequest
 	12, // 15: infra.Actor.Train:input_type -> infra.TrainRequest
 	1,  // 16: infra.Actor.Save:input_type -> infra.Empty
 	1,  // 17: infra.Actor.Reset:input_type -> infra.Empty
 	7,  // 18: infra.Actor.TrainAvgStrategy:input_type -> infra.TrainAvgStrategyRequest
-	10, // 19: infra.Actor.GetProbs:output_type -> infra.ActionProbsResponse
-	13, // 20: infra.Actor.Train:output_type -> infra.TrainResponse
-	1,  // 21: infra.Actor.Save:output_type -> infra.Empty
-	1,  // 22: infra.Actor.Reset:output_type -> infra.Empty
-	13, // 23: infra.Actor.TrainAvgStrategy:output_type -> infra.TrainResponse
-	19, // [19:24] is the sub-list for method output_type
-	14, // [14:19] is the sub-list for method input_type
+	14, // 19: infra.Actor.TrainDirect:input_type -> infra.TrainDirectRequest
+	10, // 20: infra.Actor.GetProbs:output_type -> infra.ActionProbsResponse
+	13, // 21: infra.Actor.Train:output_type -> infra.TrainResponse
+	1,  // 22: infra.Actor.Save:output_type -> infra.Empty
+	1,  // 23: infra.Actor.Reset:output_type -> infra.Empty
+	13, // 24: infra.Actor.TrainAvgStrategy:output_type -> infra.TrainResponse
+	15, // 25: infra.Actor.TrainDirect:output_type -> infra.TrainDirectResponse
+	20, // [20:26] is the sub-list for method output_type
+	14, // [14:20] is the sub-list for method input_type
 	14, // [14:14] is the sub-list for extension type_name
 	14, // [14:14] is the sub-list for extension extendee
 	0,  // [0:14] is the sub-list for field type_name
@@ -964,7 +1102,7 @@ func file_proto_infra_actor_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_infra_actor_proto_rawDesc), len(file_proto_infra_actor_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

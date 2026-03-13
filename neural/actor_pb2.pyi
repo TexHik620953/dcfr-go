@@ -162,3 +162,23 @@ class TrainResponse(_message.Message):
     LOSS_FIELD_NUMBER: _ClassVar[int]
     loss: float
     def __init__(self, loss: _Optional[float] = ...) -> None: ...
+
+class TrainDirectRequest(_message.Message):
+    __slots__ = ("current_player", "batch_size", "iterations", "db_path", "max_samples")
+    CURRENT_PLAYER_FIELD_NUMBER: _ClassVar[int]
+    BATCH_SIZE_FIELD_NUMBER: _ClassVar[int]
+    ITERATIONS_FIELD_NUMBER: _ClassVar[int]
+    DB_PATH_FIELD_NUMBER: _ClassVar[int]
+    MAX_SAMPLES_FIELD_NUMBER: _ClassVar[int]
+    current_player: int
+    batch_size: int
+    iterations: int
+    db_path: str
+    max_samples: int
+    def __init__(self, current_player: _Optional[int] = ..., batch_size: _Optional[int] = ..., iterations: _Optional[int] = ..., db_path: _Optional[str] = ..., max_samples: _Optional[int] = ...) -> None: ...
+
+class TrainDirectResponse(_message.Message):
+    __slots__ = ("avg_loss",)
+    AVG_LOSS_FIELD_NUMBER: _ClassVar[int]
+    avg_loss: float
+    def __init__(self, avg_loss: _Optional[float] = ...) -> None: ...

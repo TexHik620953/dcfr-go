@@ -9,6 +9,14 @@ services:
     volumes:
       - ./neural/checkpoints:/app/checkpoints
       - ./neural/tensorboard:/app/tensorboard
+      - ./data/temp:/app/temp:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     logging:
       driver: "json-file"
       options:
@@ -25,7 +33,6 @@ services:
     depends_on:
       - neural
     volumes:
-      - ./data/go:/app/data
       - ./data/temp:/app/temp
     logging:
       driver: "json-file"

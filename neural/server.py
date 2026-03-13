@@ -1,6 +1,8 @@
 # python -m grpc_tools.protoc -I../dcfr-go/proto/infra/ --python_out=./ --pyi_out=./ --grpc_python_out=./ ../dcfr-go/proto/infra/actor.proto
 # docker run -d -v /run/media/texhik/WORK/CODING/NeuralNetworks/dcfr-go/neural/tensorboard/:/app/runs/:ro -p 6006:6006 --name "my_tensorboard" schafo/tensorboard:latest --logdir=/app/runs --host 0.0.0.0
 import time
+import struct
+import threading
 
 print("Init")
 import grpc
@@ -24,13 +26,13 @@ print("Launching on: ", device)
 # DCFR weighting parameter
 DCFR_ALPHA = 1.5
 HIDDEN_DIM = 256
-checkpoint = "1773048994"
+checkpoint = "1773393125"
 
 # Create player networks
 ply_networks = []
 for i in range(3):
     print("Creating: ", i, " network")
-    net = DeepCFRModel(f"ply{i}", lr=3e-3, hidden_dim=HIDDEN_DIM).to(device)
+    net = DeepCFRModel(f"ply{i}", lr=1e-3, hidden_dim=HIDDEN_DIM).to(device)
     ply_networks.append(net)
 
 # Try to load checkpoint
@@ -58,6 +60,182 @@ for net in avg_networks:
 
 tensorboard = SummaryWriter(log_dir="./tensorboard")
 
+
+# ===== Binary file reader for TrainDirect =====
+
+HEADER_SIZE = 64
+
+def make_record_dtype(hidden_dim):
+    """Build numpy structured dtype matching Go's binary record layout."""
+    return np.dtype([
+        ('active_players_mask', np.int32, 3),
+        ('players_pots', np.int32, 3),
+        ('stakes', np.int32, 3),
+        ('legal_actions', np.float32, 10),
+        ('stage', np.int32),
+        ('current_player', np.int32),
+        ('public_cards', np.int32, 5),
+        ('private_cards', np.int32, 2),
+        ('regrets', np.float32, 10),
+        ('iteration', np.int32),
+        ('context_h', np.float32, hidden_dim),
+    ])
+
+
+def read_header(path):
+    """Read binary buffer header: max_samples, hidden_dim, counts[3]."""
+    with open(path, 'rb') as f:
+        hdr = f.read(HEADER_SIZE)
+    magic = hdr[0:4]
+    if magic != b'DCFR':
+        raise ValueError(f"Invalid magic: {magic}")
+    max_samples = struct.unpack('<i', hdr[8:12])[0]
+    hidden_dim = struct.unpack('<i', hdr[12:16])[0]
+    counts = [struct.unpack('<i', hdr[20 + i * 4:24 + i * 4])[0] for i in range(3)]
+    return max_samples, hidden_dim, counts
+
+
+def load_batch_from_mmap(mmap_data, player_id, count, max_samples, batch_size, rng):
+    """Load a random batch from the memory-mapped binary file.
+    Returns numpy structured array of shape (batch_size,)."""
+    indices = rng.integers(0, count, size=batch_size)
+    offset = player_id * max_samples
+    return mmap_data[offset + indices].copy()  # copy to avoid holding mmap pages
+
+
+def batch_to_tensors(batch, hidden_dim):
+    """Convert numpy structured batch to GPU tensors. Returns (state_tuple, regrets, iterations, context_h)."""
+    # Convert to float32 tensors
+    active_mask = torch.as_tensor(batch['active_players_mask'].astype(np.float32), device=device)
+    pots = torch.as_tensor(batch['players_pots'].astype(np.float32), device=device)
+    stakes = torch.as_tensor(batch['stakes'].astype(np.float32), device=device)
+    actions_mask = torch.as_tensor(batch['legal_actions'], device=device)
+    stage = torch.as_tensor(batch['stage'].reshape(-1, 1), device=device)
+    current_player = torch.as_tensor(batch['current_player'].reshape(-1, 1), device=device)
+    public_cards = torch.as_tensor(batch['public_cards'], device=device)
+    private_cards = torch.as_tensor(batch['private_cards'], device=device)
+    regrets = torch.as_tensor(batch['regrets'], device=device)
+    iterations = torch.as_tensor(batch['iteration'].astype(np.float32), device=device)
+    context_h = torch.as_tensor(batch['context_h'], device=device)
+
+    # Normalize pots/stakes by total bank (same as convert.py)
+    bank = stakes.sum(dim=1, keepdim=True) + pots.sum(dim=1, keepdim=True)
+    bank = bank.clamp(min=1e-8)
+    stakes = stakes / bank
+    pots = pots / bank
+
+    state_tuple = (public_cards, private_cards, stakes, actions_mask, pots, active_mask, stage, current_player)
+    return state_tuple, regrets, iterations, context_h
+
+
+def train_step_direct(network, state_tuple, regrets, iterations, context_h):
+    """Single training step using pre-converted tensors."""
+    stages = state_tuple[6].squeeze(1)
+
+    network.optimizer.zero_grad()
+    features = network.encode_features(state_tuple)
+    new_context = network.context_updater(features, context_h)
+    logits = network.get_action_logits(features, new_context, stages)
+
+    dcfr_weights = (iterations + 1).pow(DCFR_ALPHA)
+    dcfr_weights = dcfr_weights / dcfr_weights.sum()
+
+    loss = ((torch.square(logits - regrets)).sum(dim=1) * dcfr_weights).sum()
+
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
+    network.optimizer.step()
+
+    total_loss = loss.item()
+
+    if network.step % 2 == 0:
+        step = network.step
+        tensorboard.add_scalar(f"{network.name}/total_loss", total_loss, step)
+        tensorboard.add_scalar(f"{network.name}/learning_rate",
+                               network.optimizer.param_groups[0]['lr'], step)
+        if step % 10 == 0:
+            total_grad_norm = sum(
+                p.grad.norm().item() ** 2 for p in network.parameters() if p.grad is not None
+            )
+            tensorboard.add_scalar(f"{network.name}/grad_total_norm",
+                                   total_grad_norm ** 0.5, step)
+
+    network.step += 1
+    return total_loss
+
+
+def prefetch_batch(mmap_data, player_id, count, max_samples, batch_size, hidden_dim, rng):
+    """Load batch from mmap and convert to tensors in a background thread."""
+    batch = load_batch_from_mmap(mmap_data, player_id, count, max_samples, batch_size, rng)
+    return batch_to_tensors(batch, hidden_dim)
+
+
+def train_direct_loop(player_id, batch_size, iterations, db_path, max_samples_hint):
+    """Run full training loop: read binary file, prefetch, train."""
+    t0 = time.perf_counter()
+
+    max_samples, hidden_dim, counts = read_header(db_path)
+    count = counts[player_id]
+    if count == 0:
+        print(f"[TrainDirect] P{player_id}: no samples")
+        return 0.0
+
+    record_dtype = make_record_dtype(hidden_dim)
+    total_records = 3 * max_samples
+
+    # Memory-map the entire records section (read-only)
+    mmap_data = np.memmap(db_path, dtype=record_dtype, mode='r',
+                          offset=HEADER_SIZE, shape=(total_records,))
+
+    network = ply_networks[player_id]
+    rng = np.random.default_rng()
+
+    # Prefetch first batch in background
+    prefetch_result = [None]
+    prefetch_event = threading.Event()
+
+    def do_prefetch():
+        prefetch_result[0] = prefetch_batch(
+            mmap_data, player_id, count, max_samples, batch_size, hidden_dim, rng
+        )
+        prefetch_event.set()
+
+    thread = threading.Thread(target=do_prefetch)
+    thread.start()
+
+    total_loss = 0.0
+    valid_iters = 0
+
+    for i in range(iterations):
+        # Wait for current batch
+        prefetch_event.wait()
+        prefetch_event.clear()
+        state_tuple, regrets, iters_t, context_h = prefetch_result[0]
+
+        # Start prefetching next batch (if not last iteration)
+        if i < iterations - 1:
+            thread = threading.Thread(target=do_prefetch)
+            thread.start()
+
+        # Train on current batch
+        loss = train_step_direct(network, state_tuple, regrets, iters_t, context_h)
+        total_loss += loss
+        valid_iters += 1
+
+    # Wait for any outstanding prefetch thread
+    if thread.is_alive():
+        thread.join()
+
+    del mmap_data  # release mmap
+
+    elapsed = time.perf_counter() - t0
+    avg_loss = total_loss / valid_iters if valid_iters > 0 else 0.0
+    print(f"[TrainDirect] P{player_id}: {valid_iters} iters, avg_loss={avg_loss:.6f}, "
+          f"samples={count}, elapsed={elapsed:.1f}s")
+    return avg_loss
+
+
+# ===== Legacy training functions (kept for old Train RPC) =====
 
 def train_net(network, game_samples):
     """Train advantage network. Each sample is independent with its saved context vector."""
@@ -97,7 +275,6 @@ def train_net(network, game_samples):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
     network.optimizer.step()
-    network.scheduler.step()
 
     total_loss = loss.item()
 
@@ -158,7 +335,6 @@ def train_avg_net(network, game_samples):
     loss.backward()
     torch.nn.utils.clip_grad_norm_(network.parameters(), 2)
     network.optimizer.step()
-    network.scheduler.step()
 
     total_loss = loss.item()
 
@@ -233,6 +409,20 @@ class ActorServicer(actor_pb2_grpc.ActorServicer):
             net = ply_networks[curr_player]
             loss = train_net(net, request.game_samples)
             return actor_pb2.TrainResponse(loss=loss)
+        except Exception as e:
+            traceback.print_exc()
+            raise e
+
+    def TrainDirect(self, request, context):
+        try:
+            avg_loss = train_direct_loop(
+                player_id=request.current_player,
+                batch_size=request.batch_size,
+                iterations=request.iterations,
+                db_path=request.db_path,
+                max_samples_hint=request.max_samples,
+            )
+            return actor_pb2.TrainDirectResponse(avg_loss=avg_loss)
         except Exception as e:
             traceback.print_exc()
             raise e
